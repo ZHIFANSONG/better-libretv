@@ -12,3 +12,5 @@ vitest-results.json
 .zcode/
 .codebuddy/
 generated-images/
+# 本机部署用环境文件（不入库）
+prod.env*
