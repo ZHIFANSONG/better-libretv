@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import './proposal.css';
 import { Providers } from '@/components/providers';
-import { LiquidGlassLayer } from '@/components/liquid-glass-layer';
+import { GlassScene } from '@/components/glass-scene';
 
 export const metadata: Metadata = {
   title: {
@@ -44,24 +44,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        {/* 背景两层（提案稿版）：#mesh 是 46px 网格线，.g-bg 是椭圆蓝晕 + 两团漂移光斑。
-            都是 fixed + pointer-events:none，不随滚动移动、不挡点击；aria-hidden 让读屏器忽略。 */}
-        <div className="g-mesh" aria-hidden="true">
-          <svg width="100%" height="100%">
-            <defs>
-              <pattern id="g-grid" width="46" height="46" patternUnits="userSpaceOnUse">
-                <path d="M46 0H0V46" fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="1" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#g-grid)" />
-          </svg>
-        </div>
-        <div className="g-bg" aria-hidden="true">
-          <i />
-          <i />
-        </div>
-        {/* 位移折射玻璃引擎（Apple Liquid Glass）：扫描 .lg 元素并与二级菜单增量同步 */}
-        <LiquidGlassLayer />
+        {/* 极光背景（46px 网格 + 蓝晕 + 两团漂移光斑）现在由 glassium 画在它的场景里。
+            原来是 .g-mesh(z-index:0) / .g-bg(z-index:1) 两层 fixed DOM：它们正好夹在画布（z-index:-1）
+            与内容之间，会把玻璃整块挡住，而且 ::before 渐变与 SVG 子节点也不在背景收编的识别范围内。 */}
+        <GlassScene />
         <Providers>{children}</Providers>
       </body>
     </html>

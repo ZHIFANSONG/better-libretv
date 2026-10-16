@@ -67,8 +67,8 @@ body {
   @apply bg-page text-content antialiased;
 }
 
-/* 渐变底色必须挂在 html 上：.aurora 是 z-index:-10 的定位层，归属根层叠上下文，
-   而 body 自带的不透明背景会把它整块盖住（那样折射玻璃就没有可折射的内容了）。 */
+/* 底色挂在 html 上，body 保持透明（glassium 的 R1：玻璃画在页面底下那块画布上，
+   而 body 自带的不透明背景会整块盖住它）。场景接好之后由 html.glass-ready 再让位。 */
 .dark {
   background: #0a0a0a;
 }
@@ -86,257 +86,6 @@ body {
 
 /* 文本选中与滚动条统一走主题色 */
 ::selection { background: rgb(var(--c-accent) / 0.35); }
-
-/* ============ 极光背景层 ============ */
-.aurora {
-  position: fixed;
-  inset: 0;
-  z-index: -10;
-  overflow: hidden;
-  pointer-events: none;
-  opacity: 0.62;
-  animation: aurora-in 1.4s ease-out 0.1s backwards;
-}
-:root:not(.dark) .aurora { opacity: 0.34; }
-.aurora span {
-  position: absolute;
-  display: block;
-  border-radius: 50%;
-  filter: blur(72px);
-  will-change: transform;
-}
-@keyframes aurora-in { from { opacity: 0; } }
-
-/* 极光光斑的漂移关键帧由 gen_aurora.py 生成（Catmull-Rom 平滑路径 + 线性时序，
-   避免逐段缓动在节点处速度归零产生的顿挫）。 */
-/*AURORA-KEYFRAMES-START*/
-/* 以下由 gen_aurora.py 生成，勿手改：修改 SPOTS 后重新运行脚本即可。 */
-.aurora .blob-a {
-  left: 50%; top: 50%; width: 680px; height: 680px; margin-left: -340px; margin-top: -340px;
-  background: radial-gradient(circle at 50% 50%, rgba(124,108,255,0.52), rgba(124,108,255,0) 70%);
-  animation: aurora-a 34s linear 0s infinite;
-}
-.aurora .blob-b {
-  left: 50%; top: 50%; width: 560px; height: 560px; margin-left: -280px; margin-top: -280px;
-  background: radial-gradient(circle at 50% 50%, rgba(34,211,238,0.40), rgba(34,211,238,0) 70%);
-  animation: aurora-b 41s linear -6s infinite;
-}
-.aurora .blob-c {
-  left: 50%; top: 50%; width: 460px; height: 460px; margin-left: -230px; margin-top: -230px;
-  background: radial-gradient(circle at 50% 50%, rgba(244,114,182,0.30), rgba(244,114,182,0) 70%);
-  animation: aurora-c 47s linear -18s infinite;
-}
-@keyframes aurora-a {
-  0% { transform: translate3d(-26vw, -18vh, 0) scale(1); }
-  1.56% { transform: translate3d(-25.9vw, -18.15vh, 0) scale(1); }
-  3.12% { transform: translate3d(-24.98vw, -19.22vh, 0) scale(1.01); }
-  4.69% { transform: translate3d(-21.5vw, -22.06vh, 0) scale(1.03); }
-  6.25% { transform: translate3d(-14.38vw, -26.31vh, 0) scale(1.07); }
-  7.81% { transform: translate3d(-6.18vw, -29.75vh, 0) scale(1.11); }
-  9.38% { transform: translate3d(-0.58vw, -30.98vh, 0) scale(1.12); }
-  10.94% { transform: translate3d(1.67vw, -31.03vh, 0) scale(1.12); }
-  12.5% { transform: translate3d(2vw, -31vh, 0) scale(1.12); }
-  14.06% { transform: translate3d(2.33vw, -30.96vh, 0) scale(1.12); }
-  15.62% { transform: translate3d(4.45vw, -30.56vh, 0) scale(1.11); }
-  17.19% { transform: translate3d(9.21vw, -28.69vh, 0) scale(1.08); }
-  18.75% { transform: translate3d(15.75vw, -24.44vh, 0) scale(1.01); }
-  20.31% { transform: translate3d(21.73vw, -19.08vh, 0) scale(0.94); }
-  21.88% { transform: translate3d(25.38vw, -15.05vh, 0) scale(0.91); }
-  23.44% { transform: translate3d(26.79vw, -13.28vh, 0) scale(0.9); }
-  25% { transform: translate3d(27vw, -13vh, 0) scale(0.9); }
-  26.56% { transform: translate3d(27.21vw, -12.72vh, 0) scale(0.9); }
-  28.12% { transform: translate3d(28.48vw, -10.89vh, 0) scale(0.9); }
-  29.69% { transform: translate3d(31.08vw, -6.44vh, 0) scale(0.92); }
-  31.25% { transform: translate3d(33.94vw, 0.25vh, 0) scale(0.97); }
-  32.81% { transform: translate3d(35.47vw, 6.83vh, 0) scale(1.03); }
-  34.38% { transform: translate3d(35.46vw, 11.06vh, 0) scale(1.05); }
-  35.94% { transform: translate3d(35.08vw, 12.75vh, 0) scale(1.06); }
-  37.5% { transform: translate3d(35vw, 13vh, 0) scale(1.06); }
-  39.06% { transform: translate3d(34.91vw, 13.25vh, 0) scale(1.06); }
-  40.62% { transform: translate3d(34.15vw, 14.77vh, 0) scale(1.06); }
-  42.19% { transform: translate3d(31.55vw, 17.84vh, 0) scale(1.04); }
-  43.75% { transform: translate3d(26.31vw, 21.5vh, 0) scale(1.01); }
-  45.31% { transform: translate3d(20.04vw, 24.49vh, 0) scale(0.97); }
-  46.88% { transform: translate3d(15.37vw, 26.22vh, 0) scale(0.95); }
-  48.44% { transform: translate3d(13.32vw, 26.9vh, 0) scale(0.95); }
-  50% { transform: translate3d(13vw, 27vh, 0) scale(0.95); }
-  51.56% { transform: translate3d(12.68vw, 27.1vh, 0) scale(0.95); }
-  53.12% { transform: translate3d(10.59vw, 27.71vh, 0) scale(0.95); }
-  54.69% { transform: translate3d(5.61vw, 28.94vh, 0) scale(0.98); }
-  56.25% { transform: translate3d(-1.75vw, 30.12vh, 0) scale(1.02); }
-  57.81% { transform: translate3d(-9vw, 30.35vh, 0) scale(1.07); }
-  59.38% { transform: translate3d(-13.75vw, 29.69vh, 0) scale(1.09); }
-  60.94% { transform: translate3d(-15.7vw, 29.11vh, 0) scale(1.09); }
-  62.5% { transform: translate3d(-16vw, 29vh, 0) scale(1.09); }
-  64.06% { transform: translate3d(-16.29vw, 28.88vh, 0) scale(1.09); }
-  65.62% { transform: translate3d(-18.19vw, 27.99vh, 0) scale(1.09); }
-  67.19% { transform: translate3d(-22.5vw, 25.22vh, 0) scale(1.06); }
-  68.75% { transform: translate3d(-28.12vw, 20.12vh, 0) scale(1.01); }
-  70.31% { transform: translate3d(-32.34vw, 14.52vh, 0) scale(0.96); }
-  71.88% { transform: translate3d(-33.87vw, 10.75vh, 0) scale(0.94); }
-  73.44% { transform: translate3d(-34.01vw, 9.23vh, 0) scale(0.93); }
-  75% { transform: translate3d(-34vw, 9vh, 0) scale(0.93); }
-  76.56% { transform: translate3d(-33.97vw, 8.78vh, 0) scale(0.93); }
-  78.12% { transform: translate3d(-33.43vw, 7.38vh, 0) scale(0.93); }
-  79.69% { transform: translate3d(-30.41vw, 4.39vh, 0) scale(0.94); }
-  81.25% { transform: translate3d(-23.81vw, 0.44vh, 0) scale(0.97); }
-  82.81% { transform: translate3d(-17.08vw, -3.26vh, 0) scale(1.01); }
-  84.38% { transform: translate3d(-13.78vw, -5.75vh, 0) scale(1.02); }
-  85.94% { transform: translate3d(-13.06vw, -6.83vh, 0) scale(1.03); }
-  87.5% { transform: translate3d(-13vw, -7vh, 0) scale(1.03); }
-  89.06% { transform: translate3d(-12.96vw, -7.17vh, 0) scale(1.03); }
-  90.62% { transform: translate3d(-13.06vw, -8.18vh, 0) scale(1.03); }
-  92.19% { transform: translate3d(-15.03vw, -10.19vh, 0) scale(1.03); }
-  93.75% { transform: translate3d(-19.94vw, -12.69vh, 0) scale(1.01); }
-  95.31% { transform: translate3d(-24.65vw, -15.1vh, 0) scale(1); }
-  96.88% { transform: translate3d(-26.23vw, -16.94vh, 0) scale(1); }
-  98.44% { transform: translate3d(-26.08vw, -17.85vh, 0) scale(1); }
-  100% { transform: translate3d(-26vw, -18vh, 0) scale(1); }
-}
-@keyframes aurora-b {
-  0% { transform: translate3d(29vw, -23vh, 0) scale(1.04); }
-  1.56% { transform: translate3d(28.93vw, -22.96vh, 0) scale(1.04); }
-  3.12% { transform: translate3d(28.28vw, -22.48vh, 0) scale(1.03); }
-  4.69% { transform: translate3d(25.84vw, -20.21vh, 0) scale(1); }
-  6.25% { transform: translate3d(20.69vw, -15.56vh, 0) scale(0.95); }
-  7.81% { transform: translate3d(14.33vw, -11.12vh, 0) scale(0.9); }
-  9.38% { transform: translate3d(9.5vw, -9.23vh, 0) scale(0.88); }
-  10.94% { transform: translate3d(7.34vw, -8.99vh, 0) scale(0.88); }
-  12.5% { transform: translate3d(7vw, -9vh, 0) scale(0.88); }
-  14.06% { transform: translate3d(6.66vw, -9.02vh, 0) scale(0.88); }
-  15.62% { transform: translate3d(4.39vw, -9.49vh, 0) scale(0.89); }
-  17.19% { transform: translate3d(-1.19vw, -12.18vh, 0) scale(0.93); }
-  18.75% { transform: translate3d(-9.62vw, -17.88vh, 0) scale(1.01); }
-  20.31% { transform: translate3d(-17.77vw, -23.18vh, 0) scale(1.09); }
-  21.88% { transform: translate3d(-22.81vw, -25.09vh, 0) scale(1.12); }
-  23.44% { transform: translate3d(-24.72vw, -25.07vh, 0) scale(1.13); }
-  25% { transform: translate3d(-25vw, -25vh, 0) scale(1.13); }
-  26.56% { transform: translate3d(-25.27vw, -24.92vh, 0) scale(1.13); }
-  28.12% { transform: translate3d(-26.99vw, -24.07vh, 0) scale(1.13); }
-  29.69% { transform: translate3d(-30.59vw, -20.54vh, 0) scale(1.1); }
-  31.25% { transform: translate3d(-34.75vw, -13.12vh, 0) scale(1.04); }
-  32.81% { transform: translate3d(-37.21vw, -4.75vh, 0) scale(0.98); }
-  34.38% { transform: translate3d(-37.49vw, 0.67vh, 0) scale(0.95); }
-  35.94% { transform: translate3d(-37.1vw, 2.71vh, 0) scale(0.94); }
-  37.5% { transform: translate3d(-37vw, 3vh, 0) scale(0.94); }
-  39.06% { transform: translate3d(-36.89vw, 3.29vh, 0) scale(0.94); }
-  40.62% { transform: translate3d(-35.97vw, 5.07vh, 0) scale(0.94); }
-  42.19% { transform: translate3d(-32.56vw, 8.84vh, 0) scale(0.96); }
-  43.75% { transform: translate3d(-25.62vw, 13.62vh, 0) scale(1); }
-  45.31% { transform: translate3d(-17.51vw, 17.67vh, 0) scale(1.05); }
-  46.88% { transform: translate3d(-11.77vw, 20vh, 0) scale(1.07); }
-  48.44% { transform: translate3d(-9.36vw, 20.87vh, 0) scale(1.07); }
-  50% { transform: translate3d(-9vw, 21vh, 0) scale(1.07); }
-  51.56% { transform: translate3d(-8.64vw, 21.12vh, 0) scale(1.07); }
-  53.12% { transform: translate3d(-6.3vw, 21.86vh, 0) scale(1.06); }
-  54.69% { transform: translate3d(-0.91vw, 23.18vh, 0) scale(1.04); }
-  56.25% { transform: translate3d(6.75vw, 24.25vh, 0) scale(0.99); }
-  57.81% { transform: translate3d(14.07vw, 24.31vh, 0) scale(0.93); }
-  59.38% { transform: translate3d(18.79vw, 23.63vh, 0) scale(0.91); }
-  60.94% { transform: translate3d(20.71vw, 23.1vh, 0) scale(0.9); }
-  62.5% { transform: translate3d(21vw, 23vh, 0) scale(0.9); }
-  64.06% { transform: translate3d(21.29vw, 22.9vh, 0) scale(0.9); }
-  65.62% { transform: translate3d(23.11vw, 22.12vh, 0) scale(0.9); }
-  67.19% { transform: translate3d(27.09vw, 19.73vh, 0) scale(0.91); }
-  68.75% { transform: translate3d(32.06vw, 15.31vh, 0) scale(0.95); }
-  70.31% { transform: translate3d(35.65vw, 10.3vh, 0) scale(0.99); }
-  71.88% { transform: translate3d(36.91vw, 6.75vh, 0) scale(1); }
-  73.44% { transform: translate3d(37.01vw, 5.23vh, 0) scale(1.01); }
-  75% { transform: translate3d(37vw, 5vh, 0) scale(1.01); }
-  76.56% { transform: translate3d(36.97vw, 4.77vh, 0) scale(1.01); }
-  78.12% { transform: translate3d(36.48vw, 3.27vh, 0) scale(1.01); }
-  79.69% { transform: translate3d(33.75vw, -0.17vh, 0) scale(1); }
-  81.25% { transform: translate3d(27.81vw, -5.06vh, 0) scale(0.99); }
-  82.81% { transform: translate3d(21.73vw, -9.7vh, 0) scale(0.97); }
-  84.38% { transform: translate3d(18.73vw, -12.65vh, 0) scale(0.96); }
-  85.94% { transform: translate3d(18.06vw, -13.82vh, 0) scale(0.96); }
-  87.5% { transform: translate3d(18vw, -14vh, 0) scale(0.96); }
-  89.06% { transform: translate3d(17.96vw, -14.17vh, 0) scale(0.96); }
-  90.62% { transform: translate3d(18vw, -15.28vh, 0) scale(0.96); }
-  92.19% { transform: translate3d(19.58vw, -17.66vh, 0) scale(0.98); }
-  93.75% { transform: translate3d(23.69vw, -20.56vh, 0) scale(1.01); }
-  95.31% { transform: translate3d(27.71vw, -22.53vh, 0) scale(1.03); }
-  96.88% { transform: translate3d(29.13vw, -23.08vh, 0) scale(1.04); }
-  98.44% { transform: translate3d(29.06vw, -23.03vh, 0) scale(1.04); }
-  100% { transform: translate3d(29vw, -23vh, 0) scale(1.04); }
-}
-@keyframes aurora-c {
-  0% { transform: translate3d(-33vw, -27vh, 0) scale(1.1); }
-  1.56% { transform: translate3d(-32.8vw, -27.16vh, 0) scale(1.1); }
-  3.12% { transform: translate3d(-31.38vw, -28.14vh, 0) scale(1.09); }
-  4.69% { transform: translate3d(-27.51vw, -30.07vh, 0) scale(1.07); }
-  6.25% { transform: translate3d(-20.94vw, -32.19vh, 0) scale(1.01); }
-  7.81% { transform: translate3d(-13.72vw, -33.54vh, 0) scale(0.95); }
-  9.38% { transform: translate3d(-8.57vw, -33.97vh, 0) scale(0.93); }
-  10.94% { transform: translate3d(-6.34vw, -34vh, 0) scale(0.92); }
-  12.5% { transform: translate3d(-6vw, -34vh, 0) scale(0.92); }
-  14.06% { transform: translate3d(-5.66vw, -33.99vh, 0) scale(0.92); }
-  15.62% { transform: translate3d(-3.43vw, -33.9vh, 0) scale(0.92); }
-  17.19% { transform: translate3d(1.71vw, -33.38vh, 0) scale(0.94); }
-  18.75% { transform: translate3d(9vw, -31.94vh, 0) scale(0.98); }
-  20.31% { transform: translate3d(15.84vw, -29.62vh, 0) scale(1.02); }
-  21.88% { transform: translate3d(20.09vw, -27.38vh, 0) scale(1.04); }
-  23.44% { transform: translate3d(21.75vw, -26.2vh, 0) scale(1.05); }
-  25% { transform: translate3d(22vw, -26vh, 0) scale(1.05); }
-  26.56% { transform: translate3d(22.24vw, -25.8vh, 0) scale(1.05); }
-  28.12% { transform: translate3d(23.73vw, -24.43vh, 0) scale(1.05); }
-  29.69% { transform: translate3d(26.71vw, -20.89vh, 0) scale(1.04); }
-  31.25% { transform: translate3d(30.06vw, -15.12vh, 0) scale(1.01); }
-  32.81% { transform: translate3d(32.26vw, -8.85vh, 0) scale(0.98); }
-  34.38% { transform: translate3d(32.97vw, -4.32vh, 0) scale(0.97); }
-  35.94% { transform: translate3d(33.01vw, -2.31vh, 0) scale(0.97); }
-  37.5% { transform: translate3d(33vw, -2vh, 0) scale(0.97); }
-  39.06% { transform: translate3d(32.98vw, -1.69vh, 0) scale(0.97); }
-  40.62% { transform: translate3d(32.78vw, 0.35vh, 0) scale(0.98); }
-  42.19% { transform: translate3d(31.68vw, 5.14vh, 0) scale(1); }
-  43.75% { transform: translate3d(28.94vw, 12vh, 0) scale(1.05); }
-  45.31% { transform: translate3d(25.09vw, 18.41vh, 0) scale(1.1); }
-  46.88% { transform: translate3d(21.83vw, 22.31vh, 0) scale(1.12); }
-  48.44% { transform: translate3d(20.25vw, 23.79vh, 0) scale(1.12); }
-  50% { transform: translate3d(20vw, 24vh, 0) scale(1.12); }
-  51.56% { transform: translate3d(19.74vw, 24.21vh, 0) scale(1.12); }
-  53.12% { transform: translate3d(18vw, 25.49vh, 0) scale(1.11); }
-  54.69% { transform: translate3d(13.59vw, 27.94vh, 0) scale(1.09); }
-  56.25% { transform: translate3d(6.62vw, 30.5vh, 0) scale(1.03); }
-  57.81% { transform: translate3d(-0.63vw, 31.93vh, 0) scale(0.97); }
-  59.38% { transform: translate3d(-5.59vw, 32.17vh, 0) scale(0.94); }
-  60.94% { transform: translate3d(-7.68vw, 32.04vh, 0) scale(0.93); }
-  62.5% { transform: translate3d(-8vw, 32vh, 0) scale(0.93); }
-  64.06% { transform: translate3d(-8.32vw, 31.96vh, 0) scale(0.93); }
-  65.62% { transform: translate3d(-10.34vw, 31.6vh, 0) scale(0.93); }
-  67.19% { transform: translate3d(-14.8vw, 30.2vh, 0) scale(0.94); }
-  68.75% { transform: translate3d(-20.81vw, 27.12vh, 0) scale(0.98); }
-  70.31% { transform: translate3d(-26.23vw, 23.09vh, 0) scale(1.01); }
-  71.88% { transform: translate3d(-29.53vw, 19.8vh, 0) scale(1.03); }
-  73.44% { transform: translate3d(-30.81vw, 18.25vh, 0) scale(1.04); }
-  75% { transform: translate3d(-31vw, 18vh, 0) scale(1.04); }
-  76.56% { transform: translate3d(-31.19vw, 17.75vh, 0) scale(1.04); }
-  78.12% { transform: translate3d(-32.28vw, 16.06vh, 0) scale(1.04); }
-  79.69% { transform: translate3d(-34.28vw, 11.85vh, 0) scale(1.03); }
-  81.25% { transform: translate3d(-36.25vw, 5.31vh, 0) scale(1.01); }
-  82.81% { transform: translate3d(-37.43vw, -1.37vh, 0) scale(1); }
-  84.38% { transform: translate3d(-37.87vw, -5.86vh, 0) scale(0.99); }
-  85.94% { transform: translate3d(-37.99vw, -7.72vh, 0) scale(0.99); }
-  87.5% { transform: translate3d(-38vw, -8vh, 0) scale(0.99); }
-  89.06% { transform: translate3d(-38.01vw, -8.28vh, 0) scale(0.99); }
-  90.62% { transform: translate3d(-38.08vw, -10.03vh, 0) scale(1); }
-  92.19% { transform: translate3d(-38.1vw, -13.79vh, 0) scale(1.01); }
-  93.75% { transform: translate3d(-37.62vw, -18.69vh, 0) scale(1.05); }
-  95.31% { transform: translate3d(-36.19vw, -23.05vh, 0) scale(1.09); }
-  96.88% { transform: translate3d(-34.33vw, -25.75vh, 0) scale(1.1); }
-  98.44% { transform: translate3d(-33.2vw, -26.84vh, 0) scale(1.1); }
-  100% { transform: translate3d(-33vw, -27vh, 0) scale(1.1); }
-}
-/*AURORA-KEYFRAMES-END*/
-
-@media (max-width: 640px) {
-  .aurora span { filter: blur(46px); }
-  .aurora { opacity: 0.5; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .aurora span { animation: none !important; }
-  .aurora { animation: none; }
-}
 
 /* ============ 入场动画 ============ */
 @keyframes enter {
@@ -476,30 +225,28 @@ body {
   background-repeat: no-repeat;
   animation: shimmer 1.6s ease-in-out infinite;
 }
-/* ============ 位移折射玻璃（Apple Liquid Glass） ============ */
-/* 引擎在 src/lib/liquid-glass.ts：canvas 烘位移贴图 → feDisplacementMap → backdrop-filter: url(#id)。
-   这里只放「兜底外观」，不做布局改动（尤其不能设 position，抽屉面板靠 absolute 定位）。 */
-.lg-panel {
-  /* 半透明衬底：backdrop-filter 对不透明底无效，且面板上的文字需要压得住光斑 */
-  background: rgb(9 11 16 / 0.62);
-  /* text-shadow 是可继承属性，一次声明即覆盖面板内全部文字 */
-  text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
+/*
+ * glassium 接管后：<html> 的底色必须让位。
+ * 场景设好时 GlassScene 会加这个类 —— 根填充（html 的 background，收进场景的那层）一旦存在，
+ * 就会以一块不透明填充盖在场景画布上，极光整片看不见。兜底底色仍然靠 .dark / :root 那条规则。
+ */
+html.glass-ready {
+  background: transparent !important;
 }
-:root:not(.dark) .lg-panel {
-  background: rgb(252 252 253 / 0.78);
-  text-shadow: none;
-}
-/* 条状玻璃：顶栏、播放页标题栏。文字细，模糊给中间值 */
-.lg-ctl {
-  background: rgb(9 11 16 / 0.5);
-}
-:root:not(.dark) .lg-ctl {
-  background: rgb(252 252 253 / 0.72);
-}
-.lg-ctl.lg-nofilter { background: rgb(9 11 16 / 0.8); }
-:root:not(.dark) .lg-ctl.lg-nofilter { background: rgb(252 252 253 / 0.92); }
 
-/* 引擎判定浏览器不支持 url() 滤镜时的降级（Safari/Firefox）：靠更实的衬底保住可读性 */
-.lg-panel.lg-nofilter { background: rgb(9 11 16 / 0.88); }
-:root:not(.dark) .lg-panel.lg-nofilter { background: rgb(252 252 253 / 0.94); }
-
+/*
+ * 玻璃宿主的静态表面必须让位。
+ * glassium 自己的 :where([glass][data-glassium-active]:not([data-glassium-overlay])) 也写了
+ * background-color: transparent，但 :where() 优先级是 0 —— 盖不过 .g-panel / .g-glass 里的
+ * var(--glass)。这里用类 + 属性把优先级补回来，否则那层深色衬底会整块压在自己那块玻璃上
+ * （收编只会收「挡在玻璃后面的别人」，不会收玻璃自己）。
+ * 只针对 data-glassium-active：还没接管的首帧、以及走 CSS 画的弹层（overlay）都留着原来的衬底。
+ */
+.g-glass[data-glassium-active],
+.g-panel[data-glassium-active],
+.g-ic[data-glassium-active],
+.g-ic[data-glassium-active]:hover {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}

@@ -179,7 +179,10 @@ function LoginModal({
       }}
     >
       <div
-        className="lg lg-panel bg-surface-raised rounded-xl p-6 w-full max-w-sm mx-4 shadow-2xl"
+        className="g-panel rounded-xl p-6 w-full max-w-sm mx-4"
+        glass="frosted"
+        glass-blur="16"
+        overlay=""
         role="dialog"
         aria-modal="true"
         aria-label={setupRequired ? '需要配置密码' : '访问验证'}

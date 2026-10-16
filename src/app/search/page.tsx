@@ -78,11 +78,17 @@ function SearchContent() {
 
   const selectedSources = useMemo(() => {
     const seen = new Set<string>();
+    const seenUrls = new Set<string>();
     return selectedKeys
       .map((key) => resolveSource({ customAPIs, envSources }, key))
       .filter((s): s is NonNullable<typeof s> => {
         if (!s || !validateSourceUrl(s.url) || seen.has(s.key)) return false;
+        // 同一地址可能同时被预置源与订阅源提供（key 不同）：按 URL 归一后只搜一次，
+        // 否则同一个采集站会被并发请求两遍，结果也会重复计入统计
+        const url = s.url.replace(/\/+$/, '');
+        if (seenUrls.has(url)) return false;
         seen.add(s.key);
+        seenUrls.add(url);
         return true;
       })
       .filter((s) => !isSourceDisabled({ sourceHealth }, s.key))
@@ -187,8 +193,10 @@ function SearchContent() {
       <main className="g-page flex-1">
         <div ref={searchHistory.containerRef} className="relative">
           <form
-            className={cn('g-search lg', searchHistory.visible && 'g-open')}
-            data-lg="depth=38 k=0.95"
+            className={cn('g-search', searchHistory.visible && 'g-open')}
+            glass="regular"
+            glass-blur="12"
+            glass-tint="rgba(255,255,255,.07)"
             onSubmit={(e) => {
               e.preventDefault();
               runSearch(input);

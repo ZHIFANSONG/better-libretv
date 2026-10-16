@@ -252,7 +252,7 @@ function LiveContent() {
 
             {/* 频道信息条 */}
             {currentChannel && (
-              <div className="g-chan lg lg-panel" data-lg="depth=26 k=0.85 blur=14">
+              <div className="g-chan g-panel" glass="frosted" glass-blur="14">
                 <div className="g-logo">
                   {logo && !logoFailed ? (
                     <SmartImage
@@ -330,7 +330,7 @@ function LiveContent() {
 
             {/* 节目单 */}
             {currentChannel && (
-              <section className="g-card lg lg-panel" data-lg="depth=28 k=0.9 blur=16">
+              <section className="g-card g-panel" glass="frosted" glass-blur="16">
                 <h4>
                   节目单 <em>epg</em>
                 </h4>
@@ -351,11 +351,13 @@ function LiveContent() {
           {/* 侧栏：桌面常驻 sticky；移动端底部抽屉 */}
           <aside
             className={cn(
-              'g-sidebar lg lg-panel',
+              'g-sidebar g-panel',
               'fixed inset-x-0 bottom-0 z-40 h-[75vh] rounded-t-2xl shadow-2xl',
               listOpen ? 'flex' : 'hidden',
               'lg:sticky lg:top-20 lg:flex lg:h-[calc(100vh-6.5rem)] lg:rounded-xl lg:shadow-none'
             )}
+            glass="frosted"
+            glass-blur="16"
           >
             {/* 抽屉把手栏（仅移动端） */}
             <div className="flex items-center justify-between px-3 pt-3 pb-1 shrink-0 lg:hidden">

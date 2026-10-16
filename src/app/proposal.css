@@ -62,84 +62,7 @@
   --glass-strong: rgba(252, 252, 253, 0.88);
 }
 
-/* ---- 背景层：#mesh 46px 网格 + .g-bg 蓝晕与漂移光斑 ---- */
-.g-mesh {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.45;
-}
-:root:not(.dark) .g-mesh {
-  opacity: 0.6;
-}
-.g-mesh svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-:root:not(.dark) .g-mesh svg path {
-  stroke: rgba(0, 0, 0, 0.07);
-}
-.g-bg {
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  overflow: hidden;
-}
-.g-bg::before {
-  content: '';
-  position: absolute;
-  top: -560px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 1500px;
-  height: 1100px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, rgba(77, 107, 254, 0.34), transparent 62%);
-  filter: blur(30px);
-}
-.g-bg i {
-  position: absolute;
-  display: block;
-  border-radius: 50%;
-  filter: blur(70px);
-}
-.g-bg i:nth-child(1) {
-  width: 520px;
-  height: 520px;
-  left: 46%;
-  top: 12%;
-  background: rgba(98, 134, 255, 0.6);
-  animation: g-d1 24s ease-in-out infinite alternate;
-}
-.g-bg i:nth-child(2) {
-  width: 380px;
-  height: 380px;
-  left: 6%;
-  top: 52%;
-  background: rgba(158, 196, 255, 0.5);
-  animation: g-d2 19s ease-in-out infinite alternate;
-}
-@keyframes g-d1 {
-  from { transform: translate(0, 0); }
-  to { transform: translate(-200px, 220px); }
-}
-@keyframes g-d2 {
-  from { transform: translate(0, 0); }
-  to { transform: translate(260px, -160px); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .g-bg i { animation: none; }
-}
-:root:not(.dark) .g-bg {
-  opacity: 0.5;
-}
-:root:not(.dark) .g-bg i:nth-child(1) { background: rgba(77, 107, 254, 0.42); }
-:root:not(.dark) .g-bg i:nth-child(2) { background: rgba(103, 153, 254, 0.36); }
-
-/* ---- 主内容抬升：背景层是 z-index 0/1 的 fixed 层 ---- */
+/* ---- 主内容：玻璃画在页面底下那块画布上，内容只需保证不画背景 ---- */
 .g-shell {
   position: relative;
   z-index: 2;
@@ -202,12 +125,26 @@
   gap: 8px;
 }
 .g-nav-bar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 7px 8px 7px 14px;
   border-radius: var(--r-pill);
   min-width: 0;
+}
+
+/*
+ * 选中气泡：一块独立的 runtime 玻璃，靠 left/top/width/height 跳到选中项上。
+ * 绝不加 transition —— glassium 的 glass-glide 认的是「一帧跳超过 24px」，
+ * 平滑过渡会被拆成每帧几像素的小位移，玻璃就只会跟着挪、不会飞。
+ */
+.g-nav-bubble {
+  position: absolute;
+  z-index: 0;
+  border-radius: var(--r-pill);
+  pointer-events: none;
+  transition: none;
 }
 .g-brand {
   display: flex;
@@ -230,20 +167,20 @@
   box-shadow: 0 8px 20px -12px rgba(77, 107, 254, 0.6);
 }
 .g-navlink {
+  position: relative;
+  z-index: 1;
   color: var(--t2);
   text-decoration: none;
   font-size: 13.5px;
   padding: 7px 14px;
   border-radius: var(--r-pill);
-  transition: background-color 0.2s var(--ease), color 0.2s var(--ease);
+  transition: color 0.2s var(--ease);
   white-space: nowrap;
 }
 .g-navlink:hover {
   color: var(--t1);
-  background: rgba(255, 255, 255, 0.07);
 }
 .g-navlink.on {
-  background: var(--brand-soft);
   color: #fff;
 }
 :root:not(.dark) .g-navlink.on {

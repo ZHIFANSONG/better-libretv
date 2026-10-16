@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ThemeToggle } from './theme';
 import { SourceManagerDrawer } from './source-manager';
@@ -10,11 +10,15 @@ import { requestShowDownloadManager } from './download-manager';
 import { Icon } from './icon';
 import { SearchHistoryDropdown, useSearchHistory } from './search-history';
 import { cn } from '@/lib/utils';
+import { bubbleBox, sameBox, type BubbleBox } from '@/lib/glass-nav';
 
 /**
- * 顶部导航（proposal-3pages 版）：浮动胶囊玻璃条。
- * 左侧品牌 mark + 4 个导航项（首页/搜索/直播/我的），右侧两个圆形玻璃图标（主题、菜单）。
- * 搜索仍走首页 ?s=：这里只做入口与最近搜索下拉，不做结果页。
+ * 顶部导航（glassium 版）：整条胶囊是一块 runtime 玻璃（`glass="regular"`），
+ * 选中态是一块会「飞过去」的玻璃气泡（`glass-glide` + `glass-jelly`）。
+ *
+ * 为什么不用 <glass-tab-bar>：它的 ::slotted(*) 会把每格塞成「图标 + 文字两行 11px」，
+ * 而顶栏要的是横排文字链接与 Next 的 <Link> 语义；官方的 glass-glide 本就是
+ * 「元素一帧跳 >24px 就让玻璃飞过去」，挪一块绝对定位的玻璃即可。
  */
 const NAV_ITEMS = [
   { href: '/', label: '首页' },
@@ -23,6 +27,9 @@ const NAV_ITEMS = [
   { href: '/me', label: '我的' },
 ] as const;
 
+/** 首屏的初始盒子：量到之前不许闪。 */
+const BUBBLE_INIT: CSSProperties = { left: 0, top: 0, width: 0, height: 0, opacity: 0 };
+
 export function Header({ showSearch = false }: { showSearch?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -30,6 +37,9 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [query, setQuery] = useState('');
   const searchHistory = useSearchHistory(query);
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const bubbleRef = useRef<HTMLSpanElement | null>(null);
+  const boxRef = useRef<BubbleBox | null>(null);
 
   const submitSearch = (text: string) => {
     const q = text.trim().slice(0, 100);
@@ -46,10 +56,76 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
 
   const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname.startsWith(href));
 
+  /**
+   * 把气泡挪到当前选中项上。写 style 而不是走 state：位置只喂给 glassium 的
+   * ElementMotion，每帧重渲染 React 没有意义，而且玻璃要看到「一次跳变」才会起飞。
+   */
+  const syncBubble = useCallback(() => {
+    const bar = barRef.current;
+    const bubble = bubbleRef.current;
+    if (!bar || !bubble) return;
+    let box: BubbleBox | null = null;
+    // 两套 <nav> 都在 DOM 里（窄屏那套 display:none），量得到的才是当前生效的那个。
+    for (const el of Array.from(bar.querySelectorAll<HTMLElement>('.g-navlink.on'))) {
+      const b = bubbleBox(bar, el);
+      if (b) {
+        box = b;
+        break;
+      }
+    }
+    if (!box) {
+      bubble.style.opacity = '0';
+      return;
+    }
+    if (boxRef.current && sameBox(boxRef.current, box)) {
+      bubble.style.opacity = '1';
+      return;
+    }
+    boxRef.current = box;
+    bubble.style.left = `${box.x}px`;
+    bubble.style.top = `${box.y}px`;
+    bubble.style.width = `${box.w}px`;
+    bubble.style.height = `${box.h}px`;
+    bubble.style.opacity = '1';
+  }, []);
+
+  useEffect(() => {
+    syncBubble();
+    const raf = requestAnimationFrame(syncBubble);
+    const onResize = () => syncBubble();
+    window.addEventListener('resize', onResize);
+    const bar = barRef.current;
+    const ro = typeof ResizeObserver !== 'undefined' && bar ? new ResizeObserver(onResize) : null;
+    if (bar && ro) ro.observe(bar);
+    // 字体晚一步到，链接宽度会变，量一次再定。
+    if (typeof document !== 'undefined' && 'fonts' in document) {
+      void document.fonts.ready.then(() => syncBubble());
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      ro?.disconnect();
+    };
+  }, [syncBubble]);
+
+  useEffect(() => {
+    syncBubble();
+  }, [pathname, showSearch, syncBubble]);
+
   return (
     <>
       <div className="g-nav">
-        <div className="g-nav-bar g-glass lg" data-lg="depth=30 k=0.85">
+        <div ref={barRef} className="g-nav-bar g-glass" glass="regular" glass-blur="14" glass-tint="rgba(255,255,255,.08)">
+          <span
+            ref={bubbleRef}
+            className="g-nav-bubble"
+            style={BUBBLE_INIT}
+            glass="tinted"
+            glass-blur="10"
+            glass-jelly=""
+            glass-glide=""
+            aria-hidden
+          />
           <Link href="/" aria-label="LibreTV 首页" className="g-brand">
             <span className="g-mark" aria-hidden />
             <span className="hidden min-[400px]:inline">LibreTV</span>
@@ -72,7 +148,7 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
 
           {showSearch && (
             <form
-              className="hidden lg:block flex-1 max-w-xs"
+              className="g-nav-search hidden lg:block flex-1 max-w-xs"
               onSubmit={(e) => {
                 e.preventDefault();
                 submitSearch(query);
@@ -117,13 +193,16 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
         </div>
 
         <div className="g-tools">
-          <div className="g-ic lg" data-lg="depth=18 k=0.7">
+          <div className="g-ic" glass="regular" glass-blur="8" glass-tint="rgba(255,255,255,.06)" glass-jelly="">
             <ThemeToggle />
           </div>
           <button
             type="button"
-            className="g-ic lg"
-            data-lg="depth=18 k=0.7"
+            className="g-ic"
+            glass="regular"
+            glass-blur="8"
+            glass-tint="rgba(255,255,255,.06)"
+            glass-jelly=""
             title="设置"
             aria-label="设置"
             onClick={() => setSettingsOpen(true)}
@@ -132,8 +211,11 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
           </button>
           <button
             type="button"
-            className="g-ic lg hidden sm:grid"
-            data-lg="depth=18 k=0.7"
+            className="g-ic hidden sm:grid"
+            glass="regular"
+            glass-blur="8"
+            glass-tint="rgba(255,255,255,.06)"
+            glass-jelly=""
             title="观看历史"
             aria-label="观看历史"
             onClick={() => setHistoryOpen(true)}
@@ -142,8 +224,11 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
           </button>
           <button
             type="button"
-            className="g-ic lg hidden md:grid"
-            data-lg="depth=18 k=0.7"
+            className="g-ic hidden md:grid"
+            glass="regular"
+            glass-blur="8"
+            glass-tint="rgba(255,255,255,.06)"
+            glass-jelly=""
             title="下载管理"
             aria-label="下载管理"
             onClick={requestShowDownloadManager}

@@ -194,7 +194,9 @@ function WatchContent() {
       .map((k) => resolveSource(store, k)?.name)
       .filter((n): n is string => Boolean(n));
     if (source && !names.includes(source.name)) names.unshift(source.name);
-    return names;
+    // 预置源与订阅源可能同名（地址也相同、只是 key 不同）：去重后再渲染，
+    // 否则 chip 会重复一轮并触发 React 重复 key 警告
+    return [...new Set(names)];
   }, [store, source]);
 
   if (!verified) {
@@ -231,7 +233,7 @@ function WatchContent() {
 
       <main className="g-page flex-1">
         {/* 播放页次级条：返回 + 当前源，动作放右侧（提案稿的浮动胶囊形态） */}
-        <div className="g-subbar lg g-glass" data-lg="depth=22 k=0.8">
+        <div className="g-subbar g-glass" glass="tinted" glass-blur="10">
           <BackButton />
           <span className="g-src-name">
             {source.name}
@@ -274,7 +276,7 @@ function WatchContent() {
             </div>
 
             {/* 信息卡：标题标签 + 元信息 + 简介 + 动作 */}
-            <div className="g-info lg lg-panel" data-lg="depth=26 k=0.85 blur=14">
+            <div className="g-info g-panel" glass="frosted" glass-blur="14">
               <h1>
                 {videoTitle}
                 {videoInfo?.remarks && <s>{videoInfo.remarks}</s>}
@@ -320,7 +322,7 @@ function WatchContent() {
 
           {/* 侧栏：采集源 / 选集 / 快捷键 */}
           <aside className="g-side">
-            <div className="g-card lg lg-panel" data-lg="depth=28 k=0.9 blur=16">
+            <div className="g-card g-panel" glass="frosted" glass-blur="16">
               <h4>
                 采集源 <em>sources</em>
               </h4>
@@ -342,7 +344,7 @@ function WatchContent() {
               </button>
             </div>
 
-            <div className="g-card lg lg-panel" data-lg="depth=28 k=0.9 blur=16">
+            <div className="g-card g-panel" glass="frosted" glass-blur="16">
               <h4>
                 选集
                 {episodes.length > 1 && (
@@ -381,7 +383,7 @@ function WatchContent() {
               )}
             </div>
 
-            <div className="g-card lg lg-panel" data-lg="depth=28 k=0.9 blur=16">
+            <div className="g-card g-panel" glass="frosted" glass-blur="16">
               <h4>
                 快捷键 <em>keys</em>
               </h4>

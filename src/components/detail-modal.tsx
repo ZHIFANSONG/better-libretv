@@ -132,7 +132,10 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="lg lg-panel bg-surface-raised rounded-xl w-full max-w-3xl shadow-2xl animate-slide-up outline-none"
+        className="g-panel rounded-xl w-full max-w-3xl animate-slide-up outline-none"
+        glass="frosted"
+        glass-blur="14"
+        overlay=""
         role="dialog"
         aria-modal="true"
         aria-label={`${item.name} 详情`}

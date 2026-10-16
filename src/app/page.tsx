@@ -75,8 +75,10 @@ function HomeContent() {
         <section className="g-hero" aria-label="搜索">
           <div ref={searchHistory.containerRef} className="relative">
             <form
-              className={cn('g-search lg', searchHistory.visible && 'g-open')}
-              data-lg="depth=40 k=0.95"
+              className={cn('g-search', searchHistory.visible && 'g-open')}
+              glass="regular"
+              glass-blur="12"
+              glass-tint="rgba(255,255,255,.07)"
               onSubmit={(e) => {
                 e.preventDefault();
                 goSearch(input);

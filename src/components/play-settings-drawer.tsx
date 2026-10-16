@@ -24,7 +24,13 @@ export function PlaySettingsDrawer() {
   const sick = selectedKeys.filter((k) => sourceHealth[k]?.ok === false).length;
 
   return (
-    <aside className="g-drawer g-panel lg" data-lg="depth=30 k=0.9 blur=16" aria-label="播放设置">
+    <aside
+      className="g-drawer g-panel"
+      glass="frosted"
+      glass-blur="16"
+      overlay=""
+      aria-label="播放设置"
+    >
       <h4>
         播放设置 <em>drawer</em>
       </h4>

@@ -358,6 +358,20 @@ export const useAppStore = create<AppState>()(
       setSelectedKeys: (keys) => set({ selectedKeys: keys }),
 
       setEnvSources: (list) => {
+        // 历史上同一采集站可能已被订阅导入（key 形如 sub_xxx_N）：预置源一来就留下两套同名源。
+        // 预置优先：清掉地址重复的订阅条目（只按地址判断，key 重新编号无妨，订阅下次同步会重建）。
+        const norm = (u: string) => u.replace(/\/+$/, '');
+        const envUrlSet = new Set(list.map((s) => norm(s.url)));
+        const subPrefixes = get().subscriptions.map((s) => subKeyPrefix(s.url));
+        const isSubOwned = (key: string) => subPrefixes.some((pfx) => keyBelongsToSubscription(key, pfx));
+        const dropped = get().customAPIs.filter((a) => isSubOwned(a.key) && envUrlSet.has(norm(a.url)));
+        const droppedKeys = new Set(dropped.map((a) => a.key));
+        if (droppedKeys.size > 0) {
+          set({
+            customAPIs: get().customAPIs.filter((a) => !droppedKeys.has(a.key)),
+            selectedKeys: get().selectedKeys.filter((k) => !droppedKeys.has(k)),
+          });
+        }
         // 预置源首次出现时自动勾选（开箱即搜）；用户此后取消勾选不会被反复勾回
         const seen = new Set(get().envKeysSeen);
         const freshKeys = list.map((s) => s.key).filter((k) => !seen.has(k));
@@ -438,6 +452,9 @@ export const useAppStore = create<AppState>()(
         const prefix = subKeyPrefix(subUrl);
         // 与订阅源 URL 相同的手动添加源视为重复，避免同步后出现双份
         const subUrls = new Set(list.map((s) => s.url.replace(/\/+$/, '')));
+        // 预置源（DEFAULT_SOURCES）与预置订阅常指向同一批地址：地址已在预置源里的订阅条目不再重复导入，
+        // 否则同一采集源会出现两套（预置 + 订阅）、各占一个勾选位，列表与计数都会翻倍
+        const envUrls = new Set(get().envSources.map((s) => s.url.replace(/\/+$/, '')));
         const keptCustom = get().customAPIs.filter(
           (a) => !keyBelongsToSubscription(a.key, prefix) && !subUrls.has(a.url.replace(/\/+$/, ''))
         );
@@ -449,10 +466,12 @@ export const useAppStore = create<AppState>()(
             .map((a) => a.url.replace(/\/+$/, ''))
         );
         const prevUrlSet = new Set(prevOwned.map((a) => a.url.replace(/\/+$/, '')));
-        const incoming: SourceConfig[] = list.map((s, i) => ({
-          ...s,
-          key: `${prefix}_${i}`,
-        }));
+        const incoming: SourceConfig[] = list
+          .filter((s) => !envUrls.has(s.url.replace(/\/+$/, '')))
+          .map((s, i) => ({
+            ...s,
+            key: `${prefix}_${i}`,
+          }));
         // 新源自动勾选（成人过滤开启时跳过成人源），已有源维持原勾选状态
         const toSelect = incoming
           .filter((s) => {
