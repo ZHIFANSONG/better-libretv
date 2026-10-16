@@ -2,7 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import './proposal.css';
 import { Providers } from '@/components/providers';
-import { GlassScene } from '@/components/glass-scene';
+import { GlassRuntime } from '@/components/glass-runtime';
+import { TopProgress } from '@/components/top-progress';
 
 export const metadata: Metadata = {
   title: {
@@ -44,10 +45,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        {/* 极光背景（46px 网格 + 蓝晕 + 两团漂移光斑）现在由 glassium 画在它的场景里。
-            原来是 .g-mesh(z-index:0) / .g-bg(z-index:1) 两层 fixed DOM：它们正好夹在画布（z-index:-1）
-            与内容之间，会把玻璃整块挡住，而且 ::before 渐变与 SVG 子节点也不在背景收编的识别范围内。 */}
-        <GlassScene />
+        {/* 背景层：46px 网格 + 蓝晕 + 两团漂移光斑。
+            它们由 CSS 画在 DOM 里（CSS 后端下玻璃就是 backdrop-filter，必须自己下面有东西可模糊）；
+            .g-mesh z-index:0 / .g-bg z-index:1，主内容 .g-shell/.g-page 是 z-index:2，天然压在上面。 */}
+        <div className="g-mesh" aria-hidden="true">
+          <svg width="100%" height="100%">
+            <defs>
+              <pattern id="g-grid" width="46" height="46" patternUnits="userSpaceOnUse">
+                <path d="M46 0H0V46" fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="1" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#g-grid)" />
+          </svg>
+        </div>
+        <div className="g-bg" aria-hidden="true">
+          <i />
+          <i />
+        </div>
+        <GlassRuntime />
+        <TopProgress />
         <Providers>{children}</Providers>
       </body>
     </html>

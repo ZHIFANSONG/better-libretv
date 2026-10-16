@@ -2,14 +2,14 @@ name: docker-sync-hub
 
 # 镜像标签对齐/补救工具：以**当前仓库** GHCR 包上某个版本 tag 的 digest 为源，
 # 把「主.次」与 latest 标签在 GHCR 侧补齐，并在配置了 Docker Hub 凭据的仓库
-# 同步到 docker.io/bestzwei/libretv，最后逐一校验一致。
+# 同步到 docker.io/zhifansong/better-libretv，最后逐一校验一致。
 # 不重新构建，纯 registry 元数据操作，几秒完成。
 # 用途：
 # - 主流程 merge 打标签不完整时的补救（如 v2.12.5/v2.12.6 只打上了版本号 tag）；
 # - 两个 registry 标签不一致时的手动对齐。
 # 注意：GHCR 源跟随触发仓库——在 bestZwei/LibreTV-Next 触发修
-# ghcr.io/bestzwei/libretv-next，在 LibreSpark/LibreTV 触发修
-# ghcr.io/librespark/libretv（并连带 Docker Hub）。两个仓库按需分别触发。
+# ghcr.io/zhifansong/better-libretv，在 LibreSpark/LibreTV 触发修
+# ghcr.io/zhifansong/better-libretv（并连带 Docker Hub）。两个仓库按需分别触发。
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  DOCKERHUB_IMAGE: docker.io/bestzwei/libretv
+  DOCKERHUB_IMAGE: docker.io/zhifansong/better-libretv
 
 jobs:
   sync:

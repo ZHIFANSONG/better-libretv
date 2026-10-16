@@ -62,7 +62,100 @@
   --glass-strong: rgba(252, 252, 253, 0.88);
 }
 
-/* ---- 主内容：玻璃画在页面底下那块画布上，内容只需保证不画背景 ---- */
+/* ---- 背景层：#mesh 46px 网格 + .g-bg 蓝晕与漂移光斑 ----
+   这两层以前被搬进 glassium 的场景画布；改回 CSS 后端后又搬回 DOM（见 app/layout.tsx）——
+   玻璃现在就是 backdrop-filter，它下面必须真的有东西可模糊。层级：.g-mesh 0 / .g-bg 1 / 内容 2。 */
+.g-mesh {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.45;
+}
+:root:not(.dark) .g-mesh {
+  opacity: 0.6;
+}
+.g-mesh svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+:root:not(.dark) .g-mesh svg path {
+  stroke: rgba(0, 0, 0, 0.07);
+}
+.g-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.g-bg::before {
+  content: '';
+  position: absolute;
+  top: -560px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1500px;
+  height: 1100px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(77, 107, 254, 0.34), transparent 62%);
+  filter: blur(30px);
+}
+.g-bg i {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  filter: blur(70px);
+}
+.g-bg i:nth-child(1) {
+  width: 520px;
+  height: 520px;
+  left: 46%;
+  top: 12%;
+  background: rgba(98, 134, 255, 0.6);
+  animation: g-d1 24s ease-in-out infinite alternate;
+}
+.g-bg i:nth-child(2) {
+  width: 380px;
+  height: 380px;
+  left: 6%;
+  top: 52%;
+  background: rgba(158, 196, 255, 0.5);
+  animation: g-d2 19s ease-in-out infinite alternate;
+}
+@keyframes g-d1 {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(-200px, 220px);
+  }
+}
+@keyframes g-d2 {
+  from {
+    transform: translate(0, 0);
+  }
+  to {
+    transform: translate(260px, -160px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .g-bg i {
+    animation: none;
+  }
+}
+:root:not(.dark) .g-bg {
+  opacity: 0.5;
+}
+:root:not(.dark) .g-bg i:nth-child(1) {
+  background: rgba(77, 107, 254, 0.42);
+}
+:root:not(.dark) .g-bg i:nth-child(2) {
+  background: rgba(103, 153, 254, 0.36);
+}
+
+/* ---- 主内容：内容只需保证不画背景 ---- */
 .g-shell {
   position: relative;
   z-index: 2;
@@ -1142,5 +1235,25 @@
 @media (min-width: 1024px) {
   .g-fab {
     display: none;
+  }
+}
+
+/*
+ * 顶栏图标按钮的显示断点。
+ * .g-ic 自己写了 display: grid，与 Tailwind 的 hidden / sm:grid / md:grid 同优先级而本文件后加载
+ * → 手机上四个图标全显示，与导航文字重叠。改成自带断点的类。
+ */
+.g-ic-sm,
+.g-ic-md {
+  display: none;
+}
+@media (min-width: 640px) {
+  .g-ic-sm {
+    display: grid;
+  }
+}
+@media (min-width: 768px) {
+  .g-ic-md {
+    display: grid;
   }
 }

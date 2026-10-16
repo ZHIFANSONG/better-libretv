@@ -41,6 +41,8 @@ function HomeContent() {
   const legacyQuery = searchParams.get('s') || '';
 
   const [input, setInput] = useState('');
+  // 提交后到搜索页渲染出来之前，搜索按钮上挂个转圈（页面很快卸载，不需要清理定时器）
+  const [navigating, setNavigating] = useState(false);
   const [tab, setTab] = useState<HeroTab>('all');
   const inputRef = useRef<HTMLInputElement>(null);
   const searchHistory = useSearchHistory(input);
@@ -52,6 +54,7 @@ function HomeContent() {
 
   const goSearch = (text: string) => {
     const q = text.trim().slice(0, 100);
+    if (navigating) return;
     if (!q) {
       toast('请输入搜索内容', 'info');
       inputRef.current?.focus();
@@ -59,6 +62,7 @@ function HomeContent() {
     }
     searchHistory.close();
     searchHistory.record(q);
+    setNavigating(true);
     router.push(`/search?q=${encodeURIComponent(q)}`, { scroll: false });
   };
 
@@ -121,7 +125,7 @@ function HomeContent() {
                   <Icon name="close" className="w-4 h-4" />
                 </button>
               )}
-              <button type="submit" className="go">
+              <button type="submit" className={cn('go', navigating && 'busy')} disabled={navigating}>
                 搜索
               </button>
             </form>

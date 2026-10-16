@@ -61,6 +61,8 @@ function SearchContent() {
   const [bucket, setBucket] = useState<Bucket>('全部');
   const [detailItem, setDetailItem] = useState<SearchResultItem | null>(null);
   const [streamedOutcomes, setStreamedOutcomes] = useState<SourceSearchOutcome[]>([]);
+  /** 刚提交搜索：搜索条播一次扩散光 */
+  const [surging, setSurging] = useState(false);
   const [visibleCount, setVisibleCount] = useState(RESULT_PAGE_SIZE);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchHistory = useSearchHistory(input);
@@ -142,6 +144,9 @@ function SearchContent() {
       return;
     }
     searchHistory.record(query);
+    // 搜索动画：搜索条放一圈扩散光（.g-surging），按钮上的放大镜转起来（.go.busy）
+    setSurging(true);
+    window.setTimeout(() => setSurging(false), 700);
     router.push(`/search?q=${encodeURIComponent(query)}`, { scroll: false });
   };
 
@@ -193,7 +198,7 @@ function SearchContent() {
       <main className="g-page flex-1">
         <div ref={searchHistory.containerRef} className="relative">
           <form
-            className={cn('g-search', searchHistory.visible && 'g-open')}
+            className={cn('g-search', searchHistory.visible && 'g-open', surging && 'g-surging')}
             glass="regular"
             glass-blur="12"
             glass-tint="rgba(255,255,255,.07)"
@@ -251,7 +256,7 @@ function SearchContent() {
                 <Icon name="close" className="w-4 h-4" />
               </button>
             )}
-            <button type="submit" className="go">
+            <button type="submit" className={cn('go', isSearching && 'busy')}>
               <Icon name="search" className="w-4 h-4" />
               搜索
             </button>
@@ -299,6 +304,7 @@ function SearchContent() {
                 ))}
               </div>
               <span className="g-meta">
+                {isSearching && <span className="g-pulse" aria-hidden />}
                 {isSearching
                   ? `已就绪 ${streamedOutcomes.length}/${selectedSources.length} 个源…`
                   : searchQuery.data

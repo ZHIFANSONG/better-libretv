@@ -2,6 +2,10 @@
 
 LibreTV Next.js 迁移版：免费在线视频聚合搜索与观看平台。基于 Next.js 15（App Router）+ TypeScript + Tailwind CSS，播放内核为 ArtPlayer + hls.js，支持亮暗双主题。
 
+> 🎨 **本仓库是二改版（better-libretv）**：在上游基础上重做了整站视觉与交互——按「深色玻璃拟态」重写首页 / 搜索 / 播放 / 直播 / 我的五页版式与组件样式，玻璃质感走 [glassium](https://www.npmjs.com/package/glassium) 的 CSS 后端（真 `backdrop-filter` 模糊 + 位移折射），并补齐顶部导航进度条、图片淡入、搜索扩散光、路由级骨架屏等动效。
+> 与本仓库的差异（[对比上游](https://github.com/LibreSpark/LibreTV)）：版式、配色、动效、`loading.tsx` / `not-found.tsx`、图片加载态。
+> 上游功能与后端逻辑保持同步，可直接用本仓库替换上游部署。
+
 > 🏠 **官网**：[LibreTV 官网](https://libretv.is-an.org/)
 >
 > 🌐 **演示站**：[tv.bagiinlink.eu.org](https://tv.bagiinlink.eu.org)（访问密码：`libretv`）
@@ -45,7 +49,7 @@ docker compose up -d --build
 ```yaml
 services:
   libretv:
-    image: ghcr.io/librespark/libretv:latest
+    image: ghcr.io/zhifansong/better-libretv:latest
     container_name: libretv
     restart: unless-stopped
     ports:
@@ -68,10 +72,10 @@ docker compose pull && docker compose up -d
 
 > ⚠️ **生产部署必须通过 HTTPS 访问**（localhost 除外）：生产模式下会话 cookie 带 `Secure` 标记，浏览器只在 HTTPS（或 localhost）下保存它。因此用 `http://服务器IP:端口` 访问时，会出现"密码正确却无法登录"的现象——登录请求实际成功，但 cookie 被浏览器丢弃。请通过反向代理（Nginx / Caddy / Traefik）或 Cloudflare 等为站点套上 TLS 后再对外提供服务；本地开发用 `localhost` 不受影响。
 
-镜像发布在 GHCR 与 Docker Hub：`ghcr.io/librespark/libretv` 与 `docker.io/bestzwei/libretv`
+镜像发布在 GHCR 与 Docker Hub：`ghcr.io/zhifansong/better-libretv` 与 `docker.io/zhifansong/better-libretv`
 （`latest` / `主.次` / 完整版本号三个 tag，`linux/amd64` 与 `linux/arm64` 双架构，
 两个 registry 的镜像 digest 一致）。需要固定版本时在 `.env` 中设置
-`LIBRETV_IMAGE=ghcr.io/librespark/libretv:2.0.1`。
+`LIBRETV_IMAGE=ghcr.io/zhifansong/better-libretv:2.0.1`。
 
 > 版本号以 `package.json` 为单一来源，部署后可用 `/api/status` 返回的 `version` 字段核对。详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)。
 
@@ -214,7 +218,7 @@ npm version patch       # 或 minor / major；会更新 package.json 并打 git 
 git push && git push --tags
 ```
 
-CI 校验通过后自动构建并推送 `ghcr.io/librespark/libretv:<版本>`（详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)）。
+CI 校验通过后自动构建并推送 `ghcr.io/zhifansong/better-libretv:<版本>`（详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)）。
 
 ## 安全说明
 

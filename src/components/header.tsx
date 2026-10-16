@@ -211,7 +211,7 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
           </button>
           <button
             type="button"
-            className="g-ic hidden sm:grid"
+            className="g-ic g-ic-sm"
             glass="regular"
             glass-blur="8"
             glass-tint="rgba(255,255,255,.06)"
@@ -224,7 +224,7 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
           </button>
           <button
             type="button"
-            className="g-ic hidden md:grid"
+            className="g-ic g-ic-md"
             glass="regular"
             glass-blur="8"
             glass-tint="rgba(255,255,255,.06)"
