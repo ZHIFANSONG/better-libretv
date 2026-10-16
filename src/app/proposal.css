@@ -1257,3 +1257,282 @@
     display: grid;
   }
 }
+
+/* ===== 播放页：一页放完 + iPad 优先（m06954-4） ===== */
+/* 目标：次级条 + 舞台 + 信息卡 + 右侧三张卡在同一屏里全部露脸，不靠滚动找内容。 */
+.g-watch {
+  padding-top: 82px;
+  padding-bottom: 24px;
+}
+.g-watch .g-layout {
+  margin-top: 12px;
+  gap: 18px;
+}
+.g-watch .g-subbar {
+  margin-bottom: 2px;
+}
+/* 右侧栏跟随滚动：看信息卡时选集还在手边 */
+.g-watch .g-side {
+  position: sticky;
+  top: 74px;
+}
+.g-watch .g-card {
+  padding: 14px;
+}
+.g-watch .g-info {
+  margin-top: 14px;
+  padding: 16px 18px;
+}
+.g-watch .g-info h1 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.g-watch .g-info .g-desc {
+  max-height: 72px;
+  margin-bottom: 12px;
+}
+/* 选集格子按视口高度伸缩，避免把整页顶下去 */
+.g-watch .g-eps {
+  max-height: min(42vh, 380px);
+}
+/*
+ * iPad 竖屏（1024 宽）必须保住双列：左列仍有 ~614px，16:9 舞台 345px 高，放得下。
+ * 断点从 1024 收到 900 —— 只有真·窄屏才退化单列。
+ */
+@media (max-width: 900px) {
+  .g-watch .g-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .g-watch .g-side {
+    position: static;
+  }
+}
+/*
+ * 宽屏：舞台按「一屏剩下的高度」反推宽度（保住 16:9，不靠裁切）。
+ * 430px 是次级条 + 信息卡 + 页脚 + 上下留白的高度预算：
+ *   1440x900 桌面 → (900-430)*16/9 = 835 > 列宽 782，舞台取满列宽（不受影响）
+ *   iPad 横屏 834 → 718x404；iPad 竖屏 768 → 601x338，左列总高都 < 视口
+ */
+@media (min-width: 901px) {
+  /* 显式钉死双列：文件上半部分 @media (max-width:1024px) 的单列规则会一路压到 901px，
+     不覆盖的话 iPad 竖屏 1024 会掉成单列、侧栏掉到页面底下。 */
+  .g-watch .g-layout {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+  .g-watch .g-side {
+    position: sticky;
+    top: 74px;
+  }
+  .g-watch .g-stage {
+    width: min(100%, calc((100vh - 430px) * 16 / 9));
+    margin-inline: auto;
+    max-height: min(58vh, 620px);
+  }
+}
+/*
+ * 更矮（iPad 横屏 834 / 笔记本 768~860 高）：一张屏塞不下所有卡片和长简介，
+ * 按「必须留脸」的顺序让位 —— 快捷键卡 > 简介长度 > 卡片内边距。
+ */
+@media (max-height: 860px) {
+  .g-watch .g-side .g-card:last-child {
+    display: none;
+  }
+  .g-watch .g-info {
+    padding: 12px 14px;
+  }
+  .g-watch .g-info .g-desc {
+    max-height: 40px;
+    margin-bottom: 10px;
+  }
+  .g-watch .g-card {
+    padding: 12px;
+  }
+}
+
+
+/* ===== 首页首屏：品牌区 + 分段控件 + 推荐标签条（m06954-1） ===== */
+/* 用户给的图 1：顶栏 / 搜索胶囊 / 分类 / 「热门推荐」标题挤在一起且没有主次。
+   这里补回上游首屏那块品牌大标题，把 6 个散胶囊收成一条分段控件，推荐标签并成一行。 */
+.g-hero {
+  margin: 34px 0 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.g-hero-head {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.g-hero-title {
+  margin: 0;
+  font-size: 44px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+}
+@media (min-width: 640px) {
+  .g-hero-title {
+    font-size: 58px;
+  }
+}
+.g-hero-sub {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  color: var(--t3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
+.g-hero-sub small {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--t4);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+/* 定位容器（搜索历史浮层按它对齐）保持 max-w-2xl，比胶囊宽一圈接缝才不错位 */
+.g-hero-search {
+  width: 100%;
+  max-width: 672px;
+}
+.g-hero-search .g-search {
+  max-width: 100%;
+}
+/* 分类：药丸底 + 一块独立滑动玻璃标出选中项（做法同顶栏 .g-nav-bubble） */
+.g-seg-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+.g-seg {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
+  border-radius: var(--r-pill);
+  background: var(--s1);
+  border: 1px solid var(--bd);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.g-seg::-webkit-scrollbar {
+  display: none;
+}
+.g-seg-ind {
+  position: absolute;
+  z-index: 0;
+  border-radius: var(--r-pill);
+  pointer-events: none;
+  transition: none;
+}
+.g-seg-i {
+  position: relative;
+  z-index: 1;
+  border: 0;
+  background: transparent;
+  color: var(--t2);
+  font-size: 13px;
+  padding: 7px 16px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.2s var(--ease);
+}
+.g-seg-i:hover {
+  color: var(--t1);
+}
+.g-seg-i.on {
+  color: #fff;
+}
+:root:not(.dark) .g-seg-i.on {
+  color: var(--brand-deep);
+}
+/* 直播：独立入口，不参与分类选中态 */
+.g-seg-x {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  padding: 11px 16px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--bd);
+  background: var(--s1);
+  color: var(--t2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+.g-seg-x:hover {
+  color: var(--t1);
+  border-color: var(--bd-hover);
+}
+.g-seg-x .g-livedot {
+  width: 6px;
+  height: 6px;
+}
+/* 推荐区标签条：一行横滑，两侧渐隐（内容多时不换行堆成三四行） */
+.g-recbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 18px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
+}
+.g-recbar::-webkit-scrollbar {
+  display: none;
+}
+.g-recbar .g-tab {
+  flex: none;
+}
+.g-recbar-sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: var(--bd);
+  margin: 0 2px;
+}
+/* 推荐区里的影视/剧集细分段：比标签更实一点，和标签串区分开 */
+.g-seg2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--s2);
+  border: 1px solid var(--bd-sub);
+  flex: none;
+}
+.g-seg2-i {
+  border: 0;
+  background: transparent;
+  color: var(--t3);
+  font-size: 12.5px;
+  padding: 5px 13px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s var(--ease), background-color 0.25s var(--ease);
+}
+.g-seg2-i:hover {
+  color: var(--t1);
+}
+.g-seg2-i.on {
+  background: var(--brand-soft);
+  color: #fff;
+}
+:root:not(.dark) .g-seg2-i.on {
+  color: var(--brand-deep);
+}
+

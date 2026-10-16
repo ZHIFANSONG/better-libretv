@@ -231,7 +231,7 @@ function WatchContent() {
     <div className="g-shell min-h-screen flex flex-col">
       <Header />
 
-      <main className="g-page flex-1">
+      <main className="g-page g-watch flex-1">
         {/* 播放页次级条：返回 + 当前源，动作放右侧（提案稿的浮动胶囊形态） */}
         <div className="g-subbar g-glass" glass="tinted" glass-blur="10">
           <BackButton />

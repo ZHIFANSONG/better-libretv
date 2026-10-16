@@ -144,7 +144,7 @@ function SearchContent() {
       return;
     }
     searchHistory.record(query);
-    // 搜索动画：搜索条放一圈扩散光（.g-surging），按钮上的放大镜转起来（.go.busy）
+    // 搜索动画：搜索条放一圈扩散光 + 胶囊轻微模糊呼吸（.g-surging），按钮压暗（.go.busy）
     setSurging(true);
     window.setTimeout(() => setSurging(false), 700);
     router.push(`/search?q=${encodeURIComponent(query)}`, { scroll: false });
@@ -391,18 +391,20 @@ function SearchContent() {
   );
 }
 
+/**
+ * 搜索结果加载占位（m06954-2）：不再是 shimmer 扫光，而是「一整组内容被模糊盖住」。
+ * 真实版式（海报 + 标题 + 简介三行）保持不变，只是整体很糊 —— 结果一到就原地清晰。
+ */
 function ResultsSkeleton() {
   return (
-    <div>
+    <div className="g-soft-group" aria-hidden>
       {Array.from({ length: 6 }).map((_, i) => (
         <div key={i} className="g-row">
-          <div className="g-th bg-chip">
-            <div className="shimmer absolute inset-0" />
-          </div>
+          <div className="g-th bg-chip" />
           <div className="g-bd space-y-2 pt-1">
-            <div className="h-4 w-1/3 rounded bg-chip animate-pulse" />
-            <div className="h-3 w-3/4 rounded bg-chip animate-pulse" />
-            <div className="h-3 w-1/2 rounded bg-chip animate-pulse" />
+            <div className="h-4 w-1/3 rounded bg-chip" />
+            <div className="h-3 w-3/4 rounded bg-chip" />
+            <div className="h-3 w-1/2 rounded bg-chip" />
           </div>
         </div>
       ))}

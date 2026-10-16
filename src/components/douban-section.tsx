@@ -79,20 +79,17 @@ function DoubanView({ onPick, typeOverride }: { onPick: (title: string) => void;
 
   return (
     <section aria-label="影视推荐">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="flex bg-chip rounded-lg p-0.5">
-            <TypeButton active={type === 'movie'} onClick={() => switchType('movie')}>
-              电影
-            </TypeButton>
-            <TypeButton active={type === 'tv'} onClick={() => switchType('tv')}>
-              剧集
-            </TypeButton>
-          </div>
+      {/* 影视/剧集切换 + 标签串并成一行：两侧渐隐、窄屏横滑（m06954-1） */}
+      <div className="g-recbar">
+        <div className="g-seg2">
+          <TypeButton active={type === 'movie'} onClick={() => switchType('movie')}>
+            电影
+          </TypeButton>
+          <TypeButton active={type === 'tv'} onClick={() => switchType('tv')}>
+            剧集
+          </TypeButton>
         </div>
-      </div>
-
-      <div className="flex flex-wrap gap-1.5 mb-4">
+        <span className="g-recbar-sep" aria-hidden />
         {tags.map((t) => (
           <button
             key={t}
@@ -139,7 +136,7 @@ function BangumiView({ onPick }: { onPick: (title: string) => void }) {
 
   return (
     <section aria-label="新番放送推荐">
-      <div className="flex flex-wrap gap-1.5 mb-4">
+      <div className="g-recbar">
         <ChipButton active={weekday === 'all'} onClick={() => setWeekday('all')}>
           全部
         </ChipButton>
@@ -191,7 +188,7 @@ function HotListView({ onPick, initialListId }: { onPick: (title: string) => voi
 
   return (
     <section aria-label="影视榜单推荐">
-      <div className="flex flex-wrap gap-1.5 mb-4">
+      <div className="g-recbar">
         {HOT_LISTS.map((l) => (
           <ChipButton key={l.id} active={listId === l.id} onClick={() => setListId(l.id)}>
             {l.label}
@@ -216,11 +213,12 @@ function HotListView({ onPick, initialListId }: { onPick: (title: string) => voi
 
 function GridSkeleton() {
   return (
-    <div className="g-grid">
+    // 模糊占位（m06954-2）：整组模糊 + 呼吸，和路由骨架同一套语言
+    <div className="g-grid g-soft-group" aria-hidden>
       {Array.from({ length: 16 }).map((_, i) => (
         <div key={i}>
-          <div className="aspect-[2/3] rounded-xl bg-chip animate-pulse" />
-          <div className="h-3 mt-2 rounded bg-chip animate-pulse" />
+          <div className="aspect-[2/3] rounded-xl bg-chip" />
+          <div className="h-3 mt-2 rounded bg-chip" />
         </div>
       ))}
     </div>
@@ -241,7 +239,7 @@ function ChipButton({ active, onClick, children }: { active: boolean; onClick: (
 function TypeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
-      className={cn('g-tab', active && 'on')}
+      className={cn('g-seg2-i', active && 'on')}
       onClick={onClick}
       aria-pressed={active}
     >

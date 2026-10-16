@@ -124,7 +124,7 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/80 py-10 px-4 animate-fade-in"
+      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/80 p-4 animate-fade-in"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -132,7 +132,7 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="g-panel rounded-xl w-full max-w-3xl animate-slide-up outline-none"
+        className="g-panel rounded-xl w-full max-w-4xl max-h-[92vh] overflow-y-auto scrollbar-thin animate-slide-up outline-none"
         glass="frosted"
         glass-blur="14"
         overlay=""
@@ -140,7 +140,7 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
         aria-modal="true"
         aria-label={`${item.name} 详情`}
       >
-        <div className="flex items-start justify-between gap-4 p-5 pb-3 border-b border-line">
+        <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-line">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-content break-words">{item.name}</h2>
             <span className="text-sm text-faint">{item.sourceName}</span>
@@ -170,7 +170,7 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
                     mode={store.imageProxyMode}
                     customProxy={store.customImageProxy}
                     alt={item.name}
-                    className="w-24 sm:w-32 aspect-[2/3] object-cover rounded-lg bg-chip shrink-0 self-center sm:self-start"
+                    className="w-28 sm:w-40 aspect-[2/3] object-cover rounded-lg bg-chip shrink-0 self-center sm:self-start"
                     loading="eager"
                     onExhausted={() => setPosterFailed(true)}
                   />
@@ -187,7 +187,7 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
                     </div>
                   )}
                   {info?.desc && (
-                    <p className="text-sm text-muted leading-relaxed line-clamp-3">{info.desc}</p>
+                    <p className="text-sm text-muted leading-relaxed line-clamp-4">{info.desc}</p>
                   )}
                 </div>
               </div>
@@ -214,7 +214,7 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
                       复制链接
                     </button>
                   </div>
-                  <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 gap-2 max-h-[40vh] overflow-y-auto scrollbar-thin pr-1">
+                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 max-h-[36vh] overflow-y-auto scrollbar-thin pr-1">
                     {episodes.map((_, i) => {
                       const realIndex = reversed ? detail.episodes.length - 1 - i : i;
                       return (

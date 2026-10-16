@@ -213,17 +213,7 @@ body {
   50% { opacity: 0.55; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
 }
 
-/* 骨架屏微光扫过 */
-@keyframes shimmer {
-  0% { background-position: -160% 0; }
-  100% { background-position: 260% 0; }
-}
-.shimmer {
-  background-image: linear-gradient(90deg, transparent 0%, rgb(var(--c-accent) / 0.16) 50%, transparent 100%);
-  background-size: 180% 100%;
-  background-repeat: no-repeat;
-  animation: shimmer 1.6s ease-in-out infinite;
-}
+/* 骨架屏微光扫过已移除（m06954-2：改用 .g-soft-group 模糊占位 + 呼吸） */
 /*
  * CSS 后端下 <html> 的底色不能让位：画布没了，让位等于让极光失去衬底（暗色下会发灰）。
  * 以前 GPU 后端靠 html.glass-ready 把根填充清掉，那一段已随场景一起移除。
@@ -293,7 +283,7 @@ body {
   transition: width 0.16s ease-out;
 }
 
-/* 搜索中：搜索条外圈扩散一次光 + 搜索按钮上的小转圈 */
+/* 搜索中：搜索条外圈扩散一次光 + 胶囊轻微模糊呼吸（m06954-2 已去掉按钮上的转圈环） */
 .g-search::after {
   content: '';
   position: absolute;
@@ -315,33 +305,26 @@ body {
     box-shadow: 0 0 0 24px rgba(103, 153, 254, 0);
   }
 }
+.g-search.g-surging {
+  animation: g-breathe 1.2s ease-in-out infinite;
+}
+@keyframes g-breathe {
+  0%,
+  100% {
+    filter: blur(0px);
+  }
+  50% {
+    filter: blur(1.4px);
+  }
+}
 .g-search .go {
   position: relative;
+  transition: opacity 0.25s ease;
 }
+/* 搜索中：按钮压暗即可，不再转圈（用户 m06954-2） */
 .g-search .go.busy {
-  padding-left: 38px;
+  opacity: 0.62;
   pointer-events: none;
-}
-.g-search .go.busy svg {
-  display: none;
-}
-.g-search .go.busy::after {
-  content: '';
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  width: 13px;
-  height: 13px;
-  margin-top: -6.5px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.4);
-  border-top-color: #fff;
-  animation: g-spin 0.7s linear infinite;
-}
-@keyframes g-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* 搜索中状态点（结果统计前的小圆点） */
@@ -367,32 +350,26 @@ body {
   }
 }
 
-/* 路由级加载骨架（app/loading.tsx） */
-.g-sk {
-  position: relative;
-  overflow: hidden;
-  background: var(--s1, hsla(0, 0%, 100%, 0.06));
+/* 路由级 / 结果级加载占位（m06954-2：整组模糊 + 呼吸，替代 shimmer 扫光） */
+.g-soft-group {
+  filter: blur(8px);
+  opacity: 0.45;
+  animation: g-soft-breathe 2.6s ease-in-out infinite;
+  pointer-events: none;
 }
-.g-sk::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.09) 50%, transparent 100%);
-  background-size: 180% 100%;
-  background-repeat: no-repeat;
-  animation: g-sk-w 1.4s ease-in-out infinite;
-}
-@keyframes g-sk-w {
-  from {
-    background-position: 180% 0;
+@keyframes g-soft-breathe {
+  0%,
+  100% {
+    opacity: 0.3;
   }
-  to {
-    background-position: -80% 0;
+  50% {
+    opacity: 0.58;
   }
 }
 .g-sk-bar {
   height: 54px;
   border-radius: var(--r-pill, 100px);
+  background: var(--s1, hsla(0, 0%, 100%, 0.06));
   border: 1px solid var(--bd, hsla(0, 0%, 100%, 0.1));
 }
 .g-sk-tabs {
@@ -403,19 +380,17 @@ body {
   width: 92px;
   height: 34px;
   border-radius: var(--r-pill, 100px);
+  background: var(--s1, hsla(0, 0%, 100%, 0.06));
 }
 .g-poster.g-sk-poster {
   background: var(--s1, hsla(0, 0%, 100%, 0.06));
   cursor: default;
 }
-:root:not(.dark) .g-sk::after {
-  background-image: linear-gradient(90deg, transparent 0%, rgba(0, 0, 0, 0.06) 50%, transparent 100%);
-}
 
 @media (prefers-reduced-motion: reduce) {
-  .g-sk::after,
+  .g-soft-group,
   .g-pulse,
-  .g-search .go.busy::after,
+  .g-search.g-surging,
   .g-img-in {
     animation: none;
   }
