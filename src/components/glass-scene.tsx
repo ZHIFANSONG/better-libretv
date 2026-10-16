@@ -36,8 +36,21 @@ function coarsePointer(): boolean {
 // auto:false 是必须的 —— 自动启动会在 React hydrate 之前就给 SSR 出来的 [glass] 元素加上
 // data-glassium-* 属性，React 一比就报 hydration mismatch（dev 浮层的「1 Issue」）。
 // 关掉之后由下面的 useEffect（hydration 之后）手动 start()。
+//
+// absorbContent:false 同样是必须的，理由是一次线上事故（8443 生产构建，本地 dev 复现不出来）：
+// 内容吸收扫描发生在「顶栏的玻璃已接管、页面主体里的玻璃还没接管」的那一帧（实测 t≈2033ms，
+// active=6 全在顶栏）。blockFrom() 只在这一刻查「块里有没有 [data-glassium-active] 后代」，
+// 那时 main.g-page 里一个都没有 → 整个页面主体被当成一块内容收进场景；等主体的玻璃随后接管时，
+// 已收的块不会再被重新校验（scanContent 里 existing 命中就 continue），于是永久留在场景里。
+// 结果是 styles.js 的 [data-glassium-content] * 把整页文字设成 transparent，而场景那份又没画出来
+// —— 播放页的信息卡、选集卡、次级条全部只剩玻璃底色。整页背景的收编（absorbBackgrounds）保留，
+// 那才是这套玻璃真正要折射的东西；被玻璃压住的内容不再收进场景（代价只是滚动内容不被折射）。
 try {
-  glassium.configure({ auto: false, backend: coarsePointer() ? 'css' : 'auto' });
+  glassium.configure({
+    auto: false,
+    backend: coarsePointer() ? 'css' : 'auto',
+    absorbContent: false,
+  });
 } catch {
   /* 配置项在旧版本里可能不存在，忽略 */
 }
