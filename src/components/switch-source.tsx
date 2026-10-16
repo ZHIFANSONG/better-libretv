@@ -173,7 +173,7 @@ export function SwitchSourceModal({
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="bg-surface-raised rounded-xl w-full max-w-3xl shadow-2xl p-5 animate-slide-up outline-none"
+        className="lg lg-panel bg-surface-raised rounded-xl w-full max-w-3xl shadow-2xl p-5 animate-slide-up outline-none"
         role="dialog"
         aria-modal="true"
         aria-label={`换源：${currentTitle}`}

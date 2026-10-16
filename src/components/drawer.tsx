@@ -148,7 +148,7 @@ export function Drawer({
         aria-label={title}
         tabIndex={-1}
         className={cn(
-          'absolute right-0 top-0 h-full w-full bg-surface-raised border-l border-line flex flex-col outline-none',
+          'lg lg-panel absolute right-0 top-0 h-full w-full bg-surface-raised border-l border-line flex flex-col outline-none',
           'transition-transform duration-200 ease-out',
           width,
           entered ? 'translate-x-0' : 'translate-x-full'
@@ -164,7 +164,7 @@ export function Drawer({
             <Icon name="close" />
           </button>
         </div>
-        {subheader && <div className="shrink-0 px-4 py-2.5 border-b border-line bg-surface-raised">{subheader}</div>}
+        {subheader && <div className="shrink-0 px-4 py-2.5 border-b border-line bg-surface-raised/50">{subheader}</div>}
         {/* 唯一滚动区：内容再长也只在这一层滚动，避免与列表内滚形成嵌套滚动 */}
         <div ref={contentRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 pt-4 pb-6">
           {children}

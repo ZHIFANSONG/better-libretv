@@ -60,9 +60,9 @@ export function aggregateResults(list: SearchResultItem[]): AggregatedGroup[] {
 }
 
 /**
- * 聚合影片卡片：
- * - 单源：点击直接打开该源详情（与旧体验一致）；
- * - 多源：显示「N 个来源」徽章，点击展开各源列表，选择具体源后打开详情。
+ * 聚合结果行（proposal 版）：提案稿的 .g-row 列表形态 —— 88px 竖版缩略图 +
+ * 标题（附年份/类型徽章）+ 两行简介 + 每条来源一个可点健康胶囊。
+ * 行本体点击打开第一条来源；胶囊各自指向具体来源，避免旧版「先展开再选」的两次点击。
  */
 export function AggregatedCard({
   group,
@@ -74,133 +74,77 @@ export function AggregatedCard({
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const customImageProxy = useAppStore((s) => s.customImageProxy);
   const [imgFailed, setImgFailed] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const showImg = !!group.pic && !imgFailed;
-
-  const multi = group.items.length > 1;
   const adult = useMemo(() => group.items.some((i) => i.isAdult), [group.items]);
 
-  const activate = () => {
-    if (multi) setExpanded((v) => !v);
-    else onOpen(group.items[0]);
-  };
+  const activate = () => onOpen(group.items[0]);
 
   return (
-    <div className={cn('card', !multi && 'hover:scale-[1.02] hover:shadow-md', multi && expanded && 'ring-1 ring-accent/40')}>
-      {/* 不用 h-full：展开面板需要撑高卡片，等高裁切会让面板不可见 */}
-      <div
-        className="flex h-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
-        role="button"
-        tabIndex={0}
-        aria-expanded={multi ? expanded : undefined}
-        onClick={activate}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            activate();
-          }
-        }}
-      >
+    <div
+      className="g-row cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+      role="button"
+      tabIndex={0}
+      aria-label={`${group.name}，${group.items.length} 个来源`}
+      onClick={activate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
+        }
+      }}
+    >
+      <div className="g-th bg-chip">
         {showImg ? (
-          <div className="relative flex-shrink-0 w-[105px] sm:w-[120px] aspect-[2/3] bg-chip">
-            <SmartImage
-              url={group.pic}
-              mode={imageProxyMode}
-              customProxy={customImageProxy}
-              alt={group.name}
-              className="absolute inset-0 h-full w-full object-cover"
-              onExhausted={() => setImgFailed(true)}
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-black/30 to-transparent" />
-            {multi && (
-              <span className="absolute top-1.5 left-1.5 tag bg-black/70 text-accent font-medium">
-                {group.items.length} 源
-              </span>
-            )}
-          </div>
+          <SmartImage
+            url={group.pic}
+            mode={imageProxyMode}
+            customProxy={customImageProxy}
+            alt={group.name}
+            className="absolute inset-0 h-full w-full object-cover"
+            onExhausted={() => setImgFailed(true)}
+          />
         ) : (
-          <div className="relative flex-shrink-0 w-[105px] sm:w-[120px] aspect-[2/3] bg-chip flex items-center justify-center">
-            <svg className="w-8 h-8 text-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="flex h-full w-full items-center justify-center">
+            <svg className="w-7 h-7 text-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16m10-16v16M3 6a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6zm4 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6zm8 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6zm4 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6z" />
             </svg>
-            {multi && (
-              <span className="absolute top-1.5 left-1.5 tag bg-black/70 text-accent font-medium">
-                {group.items.length} 源
-              </span>
-            )}
           </div>
         )}
-
-        <div className="p-2.5 flex flex-col flex-grow min-w-0">
-          <div className="flex-grow">
-            <h3 className="font-semibold text-sm text-content mb-1.5 line-clamp-2" title={group.name}>
-              {group.name}
-            </h3>
-            <div className="flex flex-wrap gap-1 mb-1.5">
-              {group.typeName && <span className="tag bg-accent/15 text-accent">{group.typeName}</span>}
-              {group.year && <span className="tag bg-purple-500/15 text-purple-600 dark:text-purple-300">{group.year}</span>}
-              {adult && <span className="tag bg-pink-500/15 text-pink-600 dark:text-pink-400">(18+)</span>}
-            </div>
-            <p className="text-xs text-muted line-clamp-2 mb-2">{group.remarks || '暂无介绍'}</p>
-          </div>
-          <div className="flex items-center justify-between mt-auto pt-1.5 border-t border-line">
-            <span className="tag bg-chip text-muted truncate max-w-[80%]">
-              {multi ? `${group.items.length} 个来源` : group.items[0].sourceName}
-            </span>
-            {multi && (
-              <svg
-                className={cn('w-4 h-4 text-faint transition-transform', expanded && 'rotate-180')}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                aria-hidden
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            )}
-          </div>
-        </div>
+        <span className="g-th-q">{group.items.length > 1 ? `${group.items.length} 源` : group.items[0].sourceName}</span>
       </div>
 
-      {multi && expanded && (
-        <div className="border-t border-line p-2.5 animate-fade-in">
-          <p className="text-[10px] text-faint mb-1.5">选择来源播放</p>
-          <div className="flex flex-wrap gap-1.5">
-            {group.items.map((item) => (
-              <button
-                key={`${item.sourceKey}_${item.vodId}`}
-                className={cn(
-                  'group inline-flex items-center gap-1.5 max-w-full rounded-lg border px-2.5 py-1.5',
-                  'text-xs transition-all cursor-pointer',
-                  'border-line bg-chip hover:border-accent hover:bg-accent/10',
-                  item.isAdult && 'border-pink-500/30'
-                )}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpen(item);
-                }}
-                aria-label={`使用 ${item.sourceName} 播放`}
-              >
-                <span className="font-medium text-content truncate max-w-[9em]">{item.sourceName}</span>
-                <span className="text-faint truncate max-w-[7em]">{item.remarks || '暂无介绍'}</span>
-                <svg
-                  className="w-3.5 h-3.5 text-accent shrink-0 transition-transform group-hover:scale-110"
-                  fill="currentColor"
-                  viewBox="0 0 24 24"
-                  aria-hidden
-                >
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </button>
-            ))}
-          </div>
+      <div className="g-bd">
+        <h3 title={group.name}>
+          {group.name}
+          {group.year && <s className="g-badge">{group.year}</s>}
+          {group.typeName && <s className="g-badge">{group.typeName}</s>}
+          {adult && <s className="g-badge">(18+)</s>}
+        </h3>
+        <p>{group.remarks || '暂无介绍'}</p>
+        <div className="g-chips">
+          {group.items.map((item) => (
+            <button
+              key={`${item.sourceKey}_${item.vodId}`}
+              type="button"
+              className={cn('g-chip', item.isAdult && 'warn')}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen(item);
+              }}
+              aria-label={`使用 ${item.sourceName} 播放`}
+              title={`${item.sourceName} · ${item.remarks || '暂无介绍'}`}
+            >
+              <i />
+              <span className="truncate max-w-[9em]">{item.sourceName}</span>
+            </button>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-/** 影片卡片：封面加载失败时逐级降级到占位图（未聚合的单一结果使用） */
+/** 影片卡片（未聚合的单一结果使用）：海报复用 g-poster 形态 */
 export function VideoCard({ item, onClick }: { item: SearchResultItem; onClick: () => void }) {
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const customImageProxy = useAppStore((s) => s.customImageProxy);
@@ -209,60 +153,43 @@ export function VideoCard({ item, onClick }: { item: SearchResultItem; onClick: 
 
   return (
     <div
-      className="card cursor-pointer hover:scale-[1.02] hover:shadow-md h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+      className="g-poster focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
       role="button"
       tabIndex={0}
+      aria-label={item.name}
       onClick={onClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
-          // 阻止空格触发页面滚动（AggregatedCard 已是此写法，此处对齐）
           e.preventDefault();
           onClick();
         }
       }}
     >
-      <div className="flex h-full">
-        {showImg ? (
-          <div className="relative flex-shrink-0 w-[105px] sm:w-[120px] aspect-[2/3] bg-chip">
-            <SmartImage
-              url={item.pic}
-              mode={imageProxyMode}
-              customProxy={customImageProxy}
-              alt={item.name}
-              className="h-full w-full object-cover"
-              onExhausted={() => setImgFailed(true)}
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-black/30 to-transparent" />
-          </div>
-        ) : (
-          <div className="flex-shrink-0 w-[105px] sm:w-[120px] aspect-[2/3] bg-chip flex items-center justify-center">
-            <svg className="w-8 h-8 text-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16m10-16v16M3 6a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6zm4 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6zm8 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6zm4 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6z" />
-            </svg>
-          </div>
-        )}
-
-        <div className="p-2.5 flex flex-col flex-grow min-w-0">
-          <div className="flex-grow">
-            <h3 className="font-semibold text-sm text-content mb-1.5 line-clamp-2" title={item.name}>
-              {item.name}
-            </h3>
-            <div className="flex flex-wrap gap-1 mb-1.5">
-              {item.typeName && <span className="tag bg-accent/15 text-accent">{item.typeName}</span>}
-              {item.year && <span className="tag bg-purple-500/15 text-purple-600 dark:text-purple-300">{item.year}</span>}
-            </div>
-            <p className="text-xs text-muted line-clamp-2 mb-2">{item.remarks || '暂无介绍'}</p>
-          </div>
-          <div className="flex items-center justify-between mt-auto pt-1.5 border-t border-line">
-            <span className="tag bg-chip text-muted truncate max-w-[80%]">{item.sourceName}</span>
-          </div>
+      {showImg ? (
+        <SmartImage
+          url={item.pic}
+          mode={imageProxyMode}
+          customProxy={customImageProxy}
+          alt={item.name}
+          className="absolute inset-0 h-full w-full object-cover"
+          onExhausted={() => setImgFailed(true)}
+        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <svg className="w-8 h-8 text-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16m10-16v16M3 6a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6zm4 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6zm8 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6zm4 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6z" />
+          </svg>
         </div>
+      )}
+      <div className="g-poster-meta">
+        <b title={item.name}>{item.name}</b>
+        <span>{[item.year, item.sourceName].filter(Boolean).join(' · ')}</span>
       </div>
     </div>
   );
 }
 
-/** 豆瓣推荐卡片（无来源徽章，点击直接搜索） */
+/** 豆瓣推荐海报（proposal 版）：g-poster + 右上评分角标，点击直接搜索 */
 export function DoubanCard({ item, onClick }: { item: { title: string; cover: string; rating?: string }; onClick: () => void }) {
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const customImageProxy = useAppStore((s) => s.customImageProxy);
@@ -271,45 +198,37 @@ export function DoubanCard({ item, onClick }: { item: { title: string; cover: st
 
   return (
     <div
-      className="card cursor-pointer hover:scale-[1.03] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+      className="g-poster focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
       role="button"
       tabIndex={0}
+      aria-label={item.title}
       onClick={onClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
-          // 阻止空格触发页面滚动（AggregatedCard 已是此写法，此处对齐）
           e.preventDefault();
           onClick();
         }
       }}
     >
-      <div className="relative aspect-[2/3] bg-chip">
-        {item.cover && !imgFailed ? (
-          <SmartImage
-            url={item.cover}
-            mode={imageProxyMode}
-            customProxy={customImageProxy}
-            alt={item.title}
-            className="w-full h-full object-cover"
-            onExhausted={() => setImgFailed(true)}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-chip">
-            <svg className="w-8 h-8 text-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16m10-16v16M3 6a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6zm4 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6zm8 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6zm4 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6z" />
-            </svg>
-          </div>
-        )}
-        {item.rating && (
-          <span className={cn('absolute top-1.5 right-1.5 tag bg-black/70 text-rating font-medium')}>
-            ★ {item.rating}
-          </span>
-        )}
-      </div>
-      <div className="p-2">
-        <div className="text-xs font-medium text-content truncate" title={item.title}>
-          {item.title}
+      {item.cover && !imgFailed ? (
+        <SmartImage
+          url={item.cover}
+          mode={imageProxyMode}
+          customProxy={customImageProxy}
+          alt={item.title}
+          className="absolute inset-0 h-full w-full object-cover"
+          onExhausted={() => setImgFailed(true)}
+        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <svg className="w-8 h-8 text-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16m10-16v16M3 6a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6zm4 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6zm8 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6zm4 0a1 1 0 011-1h1a1 1 0 011 1v12a1 1 0 01-1 1h-1a1 1 0 01-1-1V6z" />
+          </svg>
         </div>
+      )}
+      {item.rating && <span className="g-rate">★ {item.rating}</span>}
+      <div className="g-poster-meta">
+        <b title={item.title}>{item.title}</b>
       </div>
     </div>
   );

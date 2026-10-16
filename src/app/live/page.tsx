@@ -203,13 +203,14 @@ function LiveContent() {
     [selectChannel]
   );
 
+
   if (!verified) {
     return (
-      <div className="min-h-screen flex flex-col">
+      <div className="g-shell min-h-screen flex flex-col">
         <Header />
-        <div className="flex-1 flex items-center justify-center">
+        <main className="g-page flex-1 flex items-center justify-center">
           <p className="text-faint text-sm">等待访问验证...</p>
-        </div>
+        </main>
       </div>
     );
   }
@@ -218,13 +219,14 @@ function LiveContent() {
   const isFavorite = currentChannel ? liveFavorites.includes(currentChannel.url) : false;
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <Header showSearch />
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-4">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+    <div className="g-shell min-h-screen flex flex-col">
+      <Header />
+
+      <main className="g-page flex-1">
+        <div className="g-layout lg:!grid-cols-[minmax(0,1fr)_320px]">
           {/* 主栏：播放器 + 信息条 + 节目单 */}
           <div className="min-w-0">
-            <div className="aspect-video bg-black rounded-lg overflow-hidden">
+            <div className="g-stage">
               {currentUrl ? (
                 <LivePlayer
                   url={currentUrl}
@@ -234,7 +236,7 @@ function LiveContent() {
                 />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-black">
-                  <span className="live-dot" />
+                  <span className="g-livedot" />
                   <p className="text-white/60 text-sm">
                     {sources.length === 0
                       ? liveEnvSources.length + liveSubscriptions.length > 0
@@ -250,8 +252,8 @@ function LiveContent() {
 
             {/* 频道信息条 */}
             {currentChannel && (
-              <div className="bg-surface-raised border border-line rounded-lg p-3 mt-3 flex items-center gap-3">
-                <div className="w-10 h-10 shrink-0 rounded bg-chip flex items-center justify-center overflow-hidden">
+              <div className="g-chan lg lg-panel" data-lg="depth=26 k=0.85 blur=14">
+                <div className="g-logo">
                   {logo && !logoFailed ? (
                     <SmartImage
                       url={logo}
@@ -262,95 +264,50 @@ function LiveContent() {
                       onExhausted={() => setLogoFailed(true)}
                     />
                   ) : (
-                    <span className="text-xs text-faint">{currentChannel.name.slice(0, 1)}</span>
+                    <span>{currentChannel.name.slice(0, 1)}</span>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="live-dot shrink-0" />
-                    <h1 className="text-sm font-semibold text-content truncate">{currentChannel.name}</h1>
-                    {currentChannel.group && (
-                      <span className="tag bg-chip text-faint shrink-0">{currentChannel.group}</span>
-                    )}
+                    <span className="g-livedot shrink-0" />
+                    <h1>{currentChannel.name}</h1>
+                    {currentChannel.group && <span className="tag bg-chip text-faint shrink-0">{currentChannel.group}</span>}
                   </div>
-                  <p className="text-xs text-faint truncate mt-0.5">{currentChannel.url}</p>
+                  <p className="g-ch-url mt-0.5">{currentChannel.url}</p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button
-                    className={cn(
-                      'rounded-md p-2 transition-colors',
-                      lastChannelRef.current
-                        ? 'text-muted hover:text-accent hover:bg-hover'
-                        : 'text-faint/40 cursor-default'
-                    )}
+                    className={cn('g-act ic', !lastChannelRef.current && 'opacity-40 cursor-default')}
                     aria-label="上一个频道"
                     title={lastChannelRef.current ? `上一个频道：${lastChannelRef.current.name}（Backspace）` : '暂无上一个频道'}
                     onClick={backToPrevChannel}
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 15L4 10l5-5m-5 5h10.5a5.5 5.5 0 015.5 5.5V17"
-                      />
-                    </svg>
-                  </button>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 15L4 10l5-5m-5 5h10.5a5.5 5.5 0 015.5 5.5V17" />
+                  </svg>
+                </button>
+                  <button className="g-act ic" aria-label="上一台" title="上一台（↑）" onClick={goPrevChannel}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                  </svg>
+                </button>
+                  <button className="g-act ic" aria-label="下一台" title="下一台（↓）" onClick={goNextChannel}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                  </svg>
+                </button>
                   <button
-                    className="rounded-md p-2 text-muted hover:text-accent hover:bg-hover transition-colors"
-                    aria-label="上一台"
-                    title="上一台（↑）"
-                    onClick={goPrevChannel}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M11 19l-7-7 7-7m8 14l-7-7 7-7"
-                      />
-                    </svg>
-                  </button>
-                  <button
-                    className="rounded-md p-2 text-muted hover:text-accent hover:bg-hover transition-colors"
-                    aria-label="下一台"
-                    title="下一台（↓）"
-                    onClick={goNextChannel}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13 5l7 7-7 7M5 5l7 7-7 7"
-                      />
-                    </svg>
-                  </button>
-                  <button
-                    className={cn(
-                      'rounded-md p-2 transition-colors',
-                      isFavorite ? 'text-warning' : 'text-muted hover:text-warning hover:bg-hover'
-                    )}
+                    className={cn('g-act ic', isFavorite && 'text-warning')}
                     aria-label={isFavorite ? '取消收藏' : '收藏'}
                     title={isFavorite ? '取消收藏' : '收藏'}
                     onClick={() => useAppStore.getState().toggleLiveFavorite(currentChannel.url)}
                   >
-                    <svg
-                      className="w-4 h-4"
-                      fill={isFavorite ? 'currentColor' : 'none'}
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-                      />
+                    <svg className="w-4 h-4" fill={isFavorite ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                     </svg>
                   </button>
                   <button
-                    className="rounded-md p-2 text-muted hover:text-accent hover:bg-hover transition-colors"
+                    className="g-act ic"
                     aria-label="复制播放地址"
                     title="复制播放地址"
                     onClick={async () => {
@@ -361,17 +318,10 @@ function LiveContent() {
                       }
                     }}
                   >
-                    {copied ? (
-                      <span className="text-[10px] text-success">已复制</span>
-                    ) : (
+                    {copied ? <span className="text-[10px] text-success">已复制</span> : (
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3"
-                        />
-                      </svg>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3" />
+                    </svg>
                     )}
                   </button>
                 </div>
@@ -380,8 +330,10 @@ function LiveContent() {
 
             {/* 节目单 */}
             {currentChannel && (
-              <section className="bg-surface-raised border border-line rounded-lg p-3 mt-3">
-                <h2 className="text-sm font-semibold text-content mb-2.5">节目单</h2>
+              <section className="g-card lg lg-panel" data-lg="depth=28 k=0.9 blur=16">
+                <h4>
+                  节目单 <em>epg</em>
+                </h4>
                 <LiveEpgPanel epgUrl={currentChannel.epg} tvgId={currentChannel.tvgId} />
               </section>
             )}
@@ -399,7 +351,7 @@ function LiveContent() {
           {/* 侧栏：桌面常驻 sticky；移动端底部抽屉 */}
           <aside
             className={cn(
-              'bg-surface-raised border border-line flex-col overflow-hidden',
+              'g-sidebar lg lg-panel',
               'fixed inset-x-0 bottom-0 z-40 h-[75vh] rounded-t-2xl shadow-2xl',
               listOpen ? 'flex' : 'hidden',
               'lg:sticky lg:top-20 lg:flex lg:h-[calc(100vh-6.5rem)] lg:rounded-xl lg:shadow-none'
@@ -407,9 +359,9 @@ function LiveContent() {
           >
             {/* 抽屉把手栏（仅移动端） */}
             <div className="flex items-center justify-between px-3 pt-3 pb-1 shrink-0 lg:hidden">
-              <span className="text-sm font-semibold text-content">频道列表</span>
+              <span className="g-subbar g-title">频道列表</span>
               <button
-                className="rounded-md p-1.5 text-muted hover:text-content hover:bg-hover transition-colors"
+                className="g-act ic"
                 aria-label="关闭频道列表"
                 onClick={() => setListOpen(false)}
               >
@@ -448,7 +400,7 @@ function LiveContent() {
         {/* 移动端呼出频道列表的悬浮按钮 */}
         {!listOpen && channels.length > 0 && (
           <button
-            className="fixed bottom-4 right-4 z-30 flex items-center gap-1.5 rounded-full bg-accent px-4 py-2.5 text-sm text-on-accent shadow-lg lg:hidden"
+            className="g-act pri g-fab items-center gap-1.5"
             onClick={() => setListOpen(true)}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

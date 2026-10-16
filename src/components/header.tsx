@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ThemeToggle } from './theme';
 import { SourceManagerDrawer } from './source-manager';
@@ -11,22 +11,31 @@ import { Icon } from './icon';
 import { SearchHistoryDropdown, useSearchHistory } from './search-history';
 import { cn } from '@/lib/utils';
 
-/** 顶部导航：Logo、搜索框（首页外）、历史、设置 */
+/**
+ * 顶部导航（proposal-3pages 版）：浮动胶囊玻璃条。
+ * 左侧品牌 mark + 4 个导航项（首页/搜索/直播/我的），右侧两个圆形玻璃图标（主题、菜单）。
+ * 搜索仍走首页 ?s=：这里只做入口与最近搜索下拉，不做结果页。
+ */
+const NAV_ITEMS = [
+  { href: '/', label: '首页' },
+  { href: '/search', label: '搜索' },
+  { href: '/live', label: '直播' },
+  { href: '/me', label: '我的' },
+] as const;
+
 export function Header({ showSearch = false }: { showSearch?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [query, setQuery] = useState('');
-  // 与首页搜索框共用同一套「最近搜索」下拉逻辑
   const searchHistory = useSearchHistory(query);
 
   const submitSearch = (text: string) => {
     const q = text.trim().slice(0, 100);
     if (!q) return;
     searchHistory.close();
-    router.push(`/?s=${encodeURIComponent(q)}`, { scroll: false });
-    // 顶栏搜索一并写入最近搜索（此前只有首页会记录）
+    router.push(`/search?q=${encodeURIComponent(q)}`, { scroll: false });
     searchHistory.record(q);
   };
 
@@ -35,18 +44,35 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
     submitSearch(text);
   };
 
+  const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname.startsWith(href));
+
   return (
     <>
-      <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur border-b border-line">
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-3">
-          <Link href="/" aria-label="LibreTV 首页" className="flex items-center shrink-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icons/icon-512.png" alt="LibreTV" className="w-7 h-7 rounded-lg" />
+      <div className="g-nav">
+        <div className="g-nav-bar g-glass lg" data-lg="depth=30 k=0.85">
+          <Link href="/" aria-label="LibreTV 首页" className="g-brand">
+            <span className="g-mark" aria-hidden />
+            <span className="hidden min-[400px]:inline">LibreTV</span>
           </Link>
+
+          <nav className="hidden sm:flex items-center gap-1" aria-label="主导航">
+            {NAV_ITEMS.map((it) => (
+              <Link key={it.href} href={it.href} className={cn('g-navlink', isActive(it.href) && 'on')}>
+                {it.label}
+              </Link>
+            ))}
+          </nav>
+          <nav className="flex sm:hidden items-center gap-0.5" aria-label="主导航">
+            {NAV_ITEMS.map((it) => (
+              <Link key={it.href} href={it.href} className={cn('g-navlink !px-2.5', isActive(it.href) && 'on')}>
+                {it.label}
+              </Link>
+            ))}
+          </nav>
 
           {showSearch && (
             <form
-              className="flex-1 max-w-xl hidden sm:block"
+              className="hidden lg:block flex-1 max-w-xs"
               onSubmit={(e) => {
                 e.preventDefault();
                 submitSearch(query);
@@ -54,14 +80,9 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
             >
               <div ref={searchHistory.containerRef} className="relative">
                 <input
-                  className={cn(
-                    'input w-full h-9',
-                    // 展开时：上圆角与外框沿用聚焦样式，底边改为内部分隔线，与下拉拼成同一面板
-                    searchHistory.visible &&
-                      'rounded-b-none border-accent border-b-line bg-surface-raised focus-visible:ring-0'
-                  )}
+                  className="w-full h-8 rounded-full bg-white/5 border border-white/10 px-3 text-xs text-content placeholder:text-faint focus:outline-none focus:border-accent/60"
                   aria-label="搜索影片"
-                  placeholder="搜索影片..."
+                  placeholder="搜索影片…"
                   value={query}
                   maxLength={100}
                   onChange={(e) => {
@@ -93,59 +114,47 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
               </div>
             </form>
           )}
-
-          <div className="flex-1 sm:hidden" />
-
-          <nav className="flex items-center gap-1 ml-auto">
-            <HeaderLink href="/live" active={pathname === '/live'}>
-              直播
-            </HeaderLink>
-            <HeaderLink href="/about" active={pathname === '/about'}>
-              关于
-            </HeaderLink>
-            <ThemeToggle />
-            <IconButton label="观看历史" onClick={() => setHistoryOpen(true)}>
-              <Icon name="clock" />
-            </IconButton>
-            <IconButton label="下载管理" onClick={requestShowDownloadManager}>
-              <Icon name="download" />
-            </IconButton>
-            <IconButton label="设置" onClick={() => setSettingsOpen(true)}>
-              <Icon name="gear" />
-            </IconButton>
-          </nav>
         </div>
-      </header>
+
+        <div className="g-tools">
+          <div className="g-ic lg" data-lg="depth=18 k=0.7">
+            <ThemeToggle />
+          </div>
+          <button
+            type="button"
+            className="g-ic lg"
+            data-lg="depth=18 k=0.7"
+            title="设置"
+            aria-label="设置"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Icon name="gear" className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            className="g-ic lg hidden sm:grid"
+            data-lg="depth=18 k=0.7"
+            title="观看历史"
+            aria-label="观看历史"
+            onClick={() => setHistoryOpen(true)}
+          >
+            <Icon name="clock" className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            className="g-ic lg hidden md:grid"
+            data-lg="depth=18 k=0.7"
+            title="下载管理"
+            aria-label="下载管理"
+            onClick={requestShowDownloadManager}
+          >
+            <Icon name="download" className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
 
       <SourceManagerDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <HistoryPanel open={historyOpen} onClose={() => setHistoryOpen(false)} />
     </>
-  );
-}
-
-function HeaderLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        'px-2.5 py-1.5 rounded-md text-sm transition-colors',
-        active ? 'text-content bg-hover' : 'text-muted hover:text-content'
-      )}
-    >
-      {children}
-    </Link>
-  );
-}
-
-function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      className="p-2 rounded-md text-muted hover:text-content hover:bg-hover transition-colors"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-    >
-      {children}
-    </button>
   );
 }

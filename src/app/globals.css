@@ -3,66 +3,62 @@
 @tailwind utilities;
 
 /*
- * 语义化配色（RGB 三元组，供 Tailwind 以 <alpha-value> 注入透明度）：
- * 深色主题沿用旧版 LibreTV 配色；浅色主题为对应的白底变体。
+ * 语义化配色（RGB 三元组，供 Tailwind 以 <alpha-value> 注入透明度）。
+ * 测试站主题：午夜靛蓝影院（深空底 + 极光靛紫主色 + 玻璃面板）。
+ * 变量名与上游完全一致，组件代码无需改动即可换肤。
  */
 :root {
-  --c-page: 246 247 249;           /* #f6f7f9 */
-  --c-surface: 255 255 255;        /* #ffffff */
+  --c-page: 245 246 251;           /* #f5f6fb */
+  --c-surface: 255 255 255;
   --c-surface-raised: 255 255 255;
   --c-card: 255 255 255;
-  --c-chip: 238 240 243;           /* #eef0f3 */
-  --c-hover: 233 236 240;          /* #e9ecf0 */
-  --c-line: 224 227 232;           /* #e0e3e8 */
-  --c-content: 26 26 26;           /* #1a1a1a */
-  --c-muted: 95 99 104;            /* #5f6368 */
-  --c-faint: 107 114 128;          /* #6b7280（原 #8a8f98 对白底仅 3.2:1，加深后达到 AA 4.5:1） */
-  --c-accent: 37 99 235;           /* blue-600 */
-  --c-accent-hover: 29 78 216;     /* blue-700 */
-  --c-on-accent: 255 255 255;      /* accent 实心底上的文字色 */
-  /* 语义状态色（亮色主题取偏深值，保证浅底上的对比度） */
-  --c-danger: 220 38 38;           /* red-600 */
-  --c-danger-hover: 185 28 28;     /* red-700 */
-  --c-success: 22 163 74;          /* green-600 */
-  --c-warning: 217 119 6;          /* amber-600 */
-  --c-info: 37 99 235;             /* blue-600 */
-  --c-rating: 245 158 11;          /* amber-500 */
-  /* 实心状态底色（配白字）：比「文字用」色更深一档，保证白字对比度 ≥ 4.5:1 */
-  --c-danger-solid: 185 28 28;     /* red-700 */
-  --c-success-solid: 21 128 61;    /* green-700 */
-  --c-warning-solid: 180 83 9;     /* amber-700 */
-  --c-info-solid: 29 78 216;       /* blue-700 */
+  --c-chip: 239 241 248;           /* #eff1f8 */
+  --c-hover: 230 233 243;          /* #e6e9f3 */
+  --c-line: 220 224 236;           /* #dce0ec */
+  --c-content: 22 24 38;           /* #161826 */
+  --c-muted: 90 96 120;            /* #5a6078 */
+  --c-faint: 106 113 138;          /* #6a718a */
+  --c-accent: 109 94 240;          /* #6d5ef0 靛紫 */
+  --c-accent-hover: 88 72 226;     /* #5848e2 */
+  --c-on-accent: 255 255 255;
+  --c-danger: 220 38 38;
+  --c-danger-hover: 185 28 28;
+  --c-success: 22 163 74;
+  --c-warning: 217 119 6;
+  --c-info: 109 94 240;
+  --c-rating: 245 158 11;
+  --c-danger-solid: 185 28 28;
+  --c-success-solid: 21 128 61;
+  --c-warning-solid: 180 83 9;
+  --c-info-solid: 88 72 226;
   color-scheme: light;
 }
 
 .dark {
-  /* 旧版 LibreTV（backup-2025）赛博影视主题（整体调深一档）：深蓝黑底 + 霓虹蓝/粉点缀 */
-  --c-page: 11 16 26;              /* #0b101a 深蓝黑页面底色 */
-  --c-surface: 20 28 41;           /* #141c29 弹窗/抽屉底色 */
-  --c-surface-raised: 20 28 41;
-  --c-card: 13 20 31;              /* #0d141f 卡片底色 */
-  --c-chip: 22 32 46;              /* #16202e 卡片/输入框底色 */
-  --c-hover: 29 42 61;             /* #1d2a3d 悬停态（chip 提亮） */
-  --c-line: 34 48 69;              /* #223045 边框（近似旧版 rgba(0,204,255,.15) 观感） */
-  --c-content: 230 242 255;        /* #e6f2ff 蓝白主文本（--text-color） */
-  --c-muted: 133 153 178;          /* #8599b2 次级文本（--text-muted） */
-  --c-faint: 107 127 153;          /* #6b7f99 三级文本 */
-  --c-accent: 0 184 230;           /* #00b8e6 霓虹蓝主色（--primary-color 调深一档） */
-  --c-accent-hover: 51 214 255;    /* #33d6ff 霓虹蓝浅变体（--primary-light） */
-  /* 霓虹蓝底亮度过高（对白字仅 2.35:1），暗色下实心底改用深色文字 */
-  --c-on-accent: 8 19 31;
-  /* 语义状态色（暗色主题取中等明度值，保证深蓝黑底上的对比度） */
-  --c-danger: 239 68 68;           /* red-500 */
-  --c-danger-hover: 248 113 113;   /* red-400 */
-  --c-success: 34 197 94;          /* green-500 */
-  --c-warning: 245 158 11;         /* amber-500 */
-  --c-info: 59 130 246;            /* blue-500 */
-  --c-rating: 251 191 36;          /* amber-400 */
-  /* 实心状态底色（配白字）：与亮色一致取深档，避免琥珀/绿色底白字对比度不足 */
-  --c-danger-solid: 185 28 28;     /* red-700 */
-  --c-success-solid: 21 128 61;    /* green-700 */
-  --c-warning-solid: 180 83 9;     /* amber-700 */
-  --c-info-solid: 29 78 216;       /* blue-700 */
+  /* 午夜靛蓝：比上游再深一档，让极光光斑与玻璃面板浮起来 */
+  --c-page: 10 10 10;              /* #0a0a0a 提案稿深黑底 */
+  --c-surface: 9 11 16;            /* 玻璃面板衬底 */
+  --c-surface-raised: 18 22 34;    /* 抬升面板 */
+  --c-card: 14 16 22;              /* 卡片底色 */
+  --c-chip: 26 29 38;              /* 输入框/标签底 */
+  --c-hover: 38 42 52;             /* 悬停底 */
+  --c-line: 40 42 48;              /* 描边（≈hsla(0,0%,100%,.1)） */
+  --c-content: 255 255 255;        /* 主文本纯白（提案稿） */
+  --c-muted: 204 204 204;          /* ≈rgba(255,255,255,.8) */
+  --c-faint: 145 148 155;          /* ≈rgba(255,255,255,.56) */
+  --c-accent: 103 153 254;         /* #6799fe 提案稿品牌色 */
+  --c-accent-hover: 77 107 254;    /* #4d6bfe */
+  --c-on-accent: 10 12 26;
+  --c-danger: 239 68 68;
+  --c-danger-hover: 248 113 113;
+  --c-success: 34 197 94;
+  --c-warning: 245 158 11;
+  --c-info: 96 165 250;
+  --c-rating: 251 191 36;
+  --c-danger-solid: 185 28 28;
+  --c-success-solid: 21 128 61;
+  --c-warning-solid: 180 83 9;
+  --c-info-solid: 29 78 216;
   color-scheme: dark;
 }
 
@@ -71,9 +67,16 @@ body {
   @apply bg-page text-content antialiased;
 }
 
-/* 暗色主题：模拟旧版 .page-bg 的深蓝黑纵向渐变 */
+/* 渐变底色必须挂在 html 上：.aurora 是 z-index:-10 的定位层，归属根层叠上下文，
+   而 body 自带的不透明背景会把它整块盖住（那样折射玻璃就没有可折射的内容了）。 */
+.dark {
+  background: #0a0a0a;
+}
 .dark body {
-  background: linear-gradient(180deg, rgb(11 16 26), rgb(20 28 41)) fixed;
+  background: transparent;
+}
+:root:not(.dark) {
+  background: #f9f8f8;
 }
 
 body {
@@ -81,33 +84,318 @@ body {
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
+/* 文本选中与滚动条统一走主题色 */
+::selection { background: rgb(var(--c-accent) / 0.35); }
+
+/* ============ 极光背景层 ============ */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.62;
+  animation: aurora-in 1.4s ease-out 0.1s backwards;
+}
+:root:not(.dark) .aurora { opacity: 0.34; }
+.aurora span {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  filter: blur(72px);
+  will-change: transform;
+}
+@keyframes aurora-in { from { opacity: 0; } }
+
+/* 极光光斑的漂移关键帧由 gen_aurora.py 生成（Catmull-Rom 平滑路径 + 线性时序，
+   避免逐段缓动在节点处速度归零产生的顿挫）。 */
+/*AURORA-KEYFRAMES-START*/
+/* 以下由 gen_aurora.py 生成，勿手改：修改 SPOTS 后重新运行脚本即可。 */
+.aurora .blob-a {
+  left: 50%; top: 50%; width: 680px; height: 680px; margin-left: -340px; margin-top: -340px;
+  background: radial-gradient(circle at 50% 50%, rgba(124,108,255,0.52), rgba(124,108,255,0) 70%);
+  animation: aurora-a 34s linear 0s infinite;
+}
+.aurora .blob-b {
+  left: 50%; top: 50%; width: 560px; height: 560px; margin-left: -280px; margin-top: -280px;
+  background: radial-gradient(circle at 50% 50%, rgba(34,211,238,0.40), rgba(34,211,238,0) 70%);
+  animation: aurora-b 41s linear -6s infinite;
+}
+.aurora .blob-c {
+  left: 50%; top: 50%; width: 460px; height: 460px; margin-left: -230px; margin-top: -230px;
+  background: radial-gradient(circle at 50% 50%, rgba(244,114,182,0.30), rgba(244,114,182,0) 70%);
+  animation: aurora-c 47s linear -18s infinite;
+}
+@keyframes aurora-a {
+  0% { transform: translate3d(-26vw, -18vh, 0) scale(1); }
+  1.56% { transform: translate3d(-25.9vw, -18.15vh, 0) scale(1); }
+  3.12% { transform: translate3d(-24.98vw, -19.22vh, 0) scale(1.01); }
+  4.69% { transform: translate3d(-21.5vw, -22.06vh, 0) scale(1.03); }
+  6.25% { transform: translate3d(-14.38vw, -26.31vh, 0) scale(1.07); }
+  7.81% { transform: translate3d(-6.18vw, -29.75vh, 0) scale(1.11); }
+  9.38% { transform: translate3d(-0.58vw, -30.98vh, 0) scale(1.12); }
+  10.94% { transform: translate3d(1.67vw, -31.03vh, 0) scale(1.12); }
+  12.5% { transform: translate3d(2vw, -31vh, 0) scale(1.12); }
+  14.06% { transform: translate3d(2.33vw, -30.96vh, 0) scale(1.12); }
+  15.62% { transform: translate3d(4.45vw, -30.56vh, 0) scale(1.11); }
+  17.19% { transform: translate3d(9.21vw, -28.69vh, 0) scale(1.08); }
+  18.75% { transform: translate3d(15.75vw, -24.44vh, 0) scale(1.01); }
+  20.31% { transform: translate3d(21.73vw, -19.08vh, 0) scale(0.94); }
+  21.88% { transform: translate3d(25.38vw, -15.05vh, 0) scale(0.91); }
+  23.44% { transform: translate3d(26.79vw, -13.28vh, 0) scale(0.9); }
+  25% { transform: translate3d(27vw, -13vh, 0) scale(0.9); }
+  26.56% { transform: translate3d(27.21vw, -12.72vh, 0) scale(0.9); }
+  28.12% { transform: translate3d(28.48vw, -10.89vh, 0) scale(0.9); }
+  29.69% { transform: translate3d(31.08vw, -6.44vh, 0) scale(0.92); }
+  31.25% { transform: translate3d(33.94vw, 0.25vh, 0) scale(0.97); }
+  32.81% { transform: translate3d(35.47vw, 6.83vh, 0) scale(1.03); }
+  34.38% { transform: translate3d(35.46vw, 11.06vh, 0) scale(1.05); }
+  35.94% { transform: translate3d(35.08vw, 12.75vh, 0) scale(1.06); }
+  37.5% { transform: translate3d(35vw, 13vh, 0) scale(1.06); }
+  39.06% { transform: translate3d(34.91vw, 13.25vh, 0) scale(1.06); }
+  40.62% { transform: translate3d(34.15vw, 14.77vh, 0) scale(1.06); }
+  42.19% { transform: translate3d(31.55vw, 17.84vh, 0) scale(1.04); }
+  43.75% { transform: translate3d(26.31vw, 21.5vh, 0) scale(1.01); }
+  45.31% { transform: translate3d(20.04vw, 24.49vh, 0) scale(0.97); }
+  46.88% { transform: translate3d(15.37vw, 26.22vh, 0) scale(0.95); }
+  48.44% { transform: translate3d(13.32vw, 26.9vh, 0) scale(0.95); }
+  50% { transform: translate3d(13vw, 27vh, 0) scale(0.95); }
+  51.56% { transform: translate3d(12.68vw, 27.1vh, 0) scale(0.95); }
+  53.12% { transform: translate3d(10.59vw, 27.71vh, 0) scale(0.95); }
+  54.69% { transform: translate3d(5.61vw, 28.94vh, 0) scale(0.98); }
+  56.25% { transform: translate3d(-1.75vw, 30.12vh, 0) scale(1.02); }
+  57.81% { transform: translate3d(-9vw, 30.35vh, 0) scale(1.07); }
+  59.38% { transform: translate3d(-13.75vw, 29.69vh, 0) scale(1.09); }
+  60.94% { transform: translate3d(-15.7vw, 29.11vh, 0) scale(1.09); }
+  62.5% { transform: translate3d(-16vw, 29vh, 0) scale(1.09); }
+  64.06% { transform: translate3d(-16.29vw, 28.88vh, 0) scale(1.09); }
+  65.62% { transform: translate3d(-18.19vw, 27.99vh, 0) scale(1.09); }
+  67.19% { transform: translate3d(-22.5vw, 25.22vh, 0) scale(1.06); }
+  68.75% { transform: translate3d(-28.12vw, 20.12vh, 0) scale(1.01); }
+  70.31% { transform: translate3d(-32.34vw, 14.52vh, 0) scale(0.96); }
+  71.88% { transform: translate3d(-33.87vw, 10.75vh, 0) scale(0.94); }
+  73.44% { transform: translate3d(-34.01vw, 9.23vh, 0) scale(0.93); }
+  75% { transform: translate3d(-34vw, 9vh, 0) scale(0.93); }
+  76.56% { transform: translate3d(-33.97vw, 8.78vh, 0) scale(0.93); }
+  78.12% { transform: translate3d(-33.43vw, 7.38vh, 0) scale(0.93); }
+  79.69% { transform: translate3d(-30.41vw, 4.39vh, 0) scale(0.94); }
+  81.25% { transform: translate3d(-23.81vw, 0.44vh, 0) scale(0.97); }
+  82.81% { transform: translate3d(-17.08vw, -3.26vh, 0) scale(1.01); }
+  84.38% { transform: translate3d(-13.78vw, -5.75vh, 0) scale(1.02); }
+  85.94% { transform: translate3d(-13.06vw, -6.83vh, 0) scale(1.03); }
+  87.5% { transform: translate3d(-13vw, -7vh, 0) scale(1.03); }
+  89.06% { transform: translate3d(-12.96vw, -7.17vh, 0) scale(1.03); }
+  90.62% { transform: translate3d(-13.06vw, -8.18vh, 0) scale(1.03); }
+  92.19% { transform: translate3d(-15.03vw, -10.19vh, 0) scale(1.03); }
+  93.75% { transform: translate3d(-19.94vw, -12.69vh, 0) scale(1.01); }
+  95.31% { transform: translate3d(-24.65vw, -15.1vh, 0) scale(1); }
+  96.88% { transform: translate3d(-26.23vw, -16.94vh, 0) scale(1); }
+  98.44% { transform: translate3d(-26.08vw, -17.85vh, 0) scale(1); }
+  100% { transform: translate3d(-26vw, -18vh, 0) scale(1); }
+}
+@keyframes aurora-b {
+  0% { transform: translate3d(29vw, -23vh, 0) scale(1.04); }
+  1.56% { transform: translate3d(28.93vw, -22.96vh, 0) scale(1.04); }
+  3.12% { transform: translate3d(28.28vw, -22.48vh, 0) scale(1.03); }
+  4.69% { transform: translate3d(25.84vw, -20.21vh, 0) scale(1); }
+  6.25% { transform: translate3d(20.69vw, -15.56vh, 0) scale(0.95); }
+  7.81% { transform: translate3d(14.33vw, -11.12vh, 0) scale(0.9); }
+  9.38% { transform: translate3d(9.5vw, -9.23vh, 0) scale(0.88); }
+  10.94% { transform: translate3d(7.34vw, -8.99vh, 0) scale(0.88); }
+  12.5% { transform: translate3d(7vw, -9vh, 0) scale(0.88); }
+  14.06% { transform: translate3d(6.66vw, -9.02vh, 0) scale(0.88); }
+  15.62% { transform: translate3d(4.39vw, -9.49vh, 0) scale(0.89); }
+  17.19% { transform: translate3d(-1.19vw, -12.18vh, 0) scale(0.93); }
+  18.75% { transform: translate3d(-9.62vw, -17.88vh, 0) scale(1.01); }
+  20.31% { transform: translate3d(-17.77vw, -23.18vh, 0) scale(1.09); }
+  21.88% { transform: translate3d(-22.81vw, -25.09vh, 0) scale(1.12); }
+  23.44% { transform: translate3d(-24.72vw, -25.07vh, 0) scale(1.13); }
+  25% { transform: translate3d(-25vw, -25vh, 0) scale(1.13); }
+  26.56% { transform: translate3d(-25.27vw, -24.92vh, 0) scale(1.13); }
+  28.12% { transform: translate3d(-26.99vw, -24.07vh, 0) scale(1.13); }
+  29.69% { transform: translate3d(-30.59vw, -20.54vh, 0) scale(1.1); }
+  31.25% { transform: translate3d(-34.75vw, -13.12vh, 0) scale(1.04); }
+  32.81% { transform: translate3d(-37.21vw, -4.75vh, 0) scale(0.98); }
+  34.38% { transform: translate3d(-37.49vw, 0.67vh, 0) scale(0.95); }
+  35.94% { transform: translate3d(-37.1vw, 2.71vh, 0) scale(0.94); }
+  37.5% { transform: translate3d(-37vw, 3vh, 0) scale(0.94); }
+  39.06% { transform: translate3d(-36.89vw, 3.29vh, 0) scale(0.94); }
+  40.62% { transform: translate3d(-35.97vw, 5.07vh, 0) scale(0.94); }
+  42.19% { transform: translate3d(-32.56vw, 8.84vh, 0) scale(0.96); }
+  43.75% { transform: translate3d(-25.62vw, 13.62vh, 0) scale(1); }
+  45.31% { transform: translate3d(-17.51vw, 17.67vh, 0) scale(1.05); }
+  46.88% { transform: translate3d(-11.77vw, 20vh, 0) scale(1.07); }
+  48.44% { transform: translate3d(-9.36vw, 20.87vh, 0) scale(1.07); }
+  50% { transform: translate3d(-9vw, 21vh, 0) scale(1.07); }
+  51.56% { transform: translate3d(-8.64vw, 21.12vh, 0) scale(1.07); }
+  53.12% { transform: translate3d(-6.3vw, 21.86vh, 0) scale(1.06); }
+  54.69% { transform: translate3d(-0.91vw, 23.18vh, 0) scale(1.04); }
+  56.25% { transform: translate3d(6.75vw, 24.25vh, 0) scale(0.99); }
+  57.81% { transform: translate3d(14.07vw, 24.31vh, 0) scale(0.93); }
+  59.38% { transform: translate3d(18.79vw, 23.63vh, 0) scale(0.91); }
+  60.94% { transform: translate3d(20.71vw, 23.1vh, 0) scale(0.9); }
+  62.5% { transform: translate3d(21vw, 23vh, 0) scale(0.9); }
+  64.06% { transform: translate3d(21.29vw, 22.9vh, 0) scale(0.9); }
+  65.62% { transform: translate3d(23.11vw, 22.12vh, 0) scale(0.9); }
+  67.19% { transform: translate3d(27.09vw, 19.73vh, 0) scale(0.91); }
+  68.75% { transform: translate3d(32.06vw, 15.31vh, 0) scale(0.95); }
+  70.31% { transform: translate3d(35.65vw, 10.3vh, 0) scale(0.99); }
+  71.88% { transform: translate3d(36.91vw, 6.75vh, 0) scale(1); }
+  73.44% { transform: translate3d(37.01vw, 5.23vh, 0) scale(1.01); }
+  75% { transform: translate3d(37vw, 5vh, 0) scale(1.01); }
+  76.56% { transform: translate3d(36.97vw, 4.77vh, 0) scale(1.01); }
+  78.12% { transform: translate3d(36.48vw, 3.27vh, 0) scale(1.01); }
+  79.69% { transform: translate3d(33.75vw, -0.17vh, 0) scale(1); }
+  81.25% { transform: translate3d(27.81vw, -5.06vh, 0) scale(0.99); }
+  82.81% { transform: translate3d(21.73vw, -9.7vh, 0) scale(0.97); }
+  84.38% { transform: translate3d(18.73vw, -12.65vh, 0) scale(0.96); }
+  85.94% { transform: translate3d(18.06vw, -13.82vh, 0) scale(0.96); }
+  87.5% { transform: translate3d(18vw, -14vh, 0) scale(0.96); }
+  89.06% { transform: translate3d(17.96vw, -14.17vh, 0) scale(0.96); }
+  90.62% { transform: translate3d(18vw, -15.28vh, 0) scale(0.96); }
+  92.19% { transform: translate3d(19.58vw, -17.66vh, 0) scale(0.98); }
+  93.75% { transform: translate3d(23.69vw, -20.56vh, 0) scale(1.01); }
+  95.31% { transform: translate3d(27.71vw, -22.53vh, 0) scale(1.03); }
+  96.88% { transform: translate3d(29.13vw, -23.08vh, 0) scale(1.04); }
+  98.44% { transform: translate3d(29.06vw, -23.03vh, 0) scale(1.04); }
+  100% { transform: translate3d(29vw, -23vh, 0) scale(1.04); }
+}
+@keyframes aurora-c {
+  0% { transform: translate3d(-33vw, -27vh, 0) scale(1.1); }
+  1.56% { transform: translate3d(-32.8vw, -27.16vh, 0) scale(1.1); }
+  3.12% { transform: translate3d(-31.38vw, -28.14vh, 0) scale(1.09); }
+  4.69% { transform: translate3d(-27.51vw, -30.07vh, 0) scale(1.07); }
+  6.25% { transform: translate3d(-20.94vw, -32.19vh, 0) scale(1.01); }
+  7.81% { transform: translate3d(-13.72vw, -33.54vh, 0) scale(0.95); }
+  9.38% { transform: translate3d(-8.57vw, -33.97vh, 0) scale(0.93); }
+  10.94% { transform: translate3d(-6.34vw, -34vh, 0) scale(0.92); }
+  12.5% { transform: translate3d(-6vw, -34vh, 0) scale(0.92); }
+  14.06% { transform: translate3d(-5.66vw, -33.99vh, 0) scale(0.92); }
+  15.62% { transform: translate3d(-3.43vw, -33.9vh, 0) scale(0.92); }
+  17.19% { transform: translate3d(1.71vw, -33.38vh, 0) scale(0.94); }
+  18.75% { transform: translate3d(9vw, -31.94vh, 0) scale(0.98); }
+  20.31% { transform: translate3d(15.84vw, -29.62vh, 0) scale(1.02); }
+  21.88% { transform: translate3d(20.09vw, -27.38vh, 0) scale(1.04); }
+  23.44% { transform: translate3d(21.75vw, -26.2vh, 0) scale(1.05); }
+  25% { transform: translate3d(22vw, -26vh, 0) scale(1.05); }
+  26.56% { transform: translate3d(22.24vw, -25.8vh, 0) scale(1.05); }
+  28.12% { transform: translate3d(23.73vw, -24.43vh, 0) scale(1.05); }
+  29.69% { transform: translate3d(26.71vw, -20.89vh, 0) scale(1.04); }
+  31.25% { transform: translate3d(30.06vw, -15.12vh, 0) scale(1.01); }
+  32.81% { transform: translate3d(32.26vw, -8.85vh, 0) scale(0.98); }
+  34.38% { transform: translate3d(32.97vw, -4.32vh, 0) scale(0.97); }
+  35.94% { transform: translate3d(33.01vw, -2.31vh, 0) scale(0.97); }
+  37.5% { transform: translate3d(33vw, -2vh, 0) scale(0.97); }
+  39.06% { transform: translate3d(32.98vw, -1.69vh, 0) scale(0.97); }
+  40.62% { transform: translate3d(32.78vw, 0.35vh, 0) scale(0.98); }
+  42.19% { transform: translate3d(31.68vw, 5.14vh, 0) scale(1); }
+  43.75% { transform: translate3d(28.94vw, 12vh, 0) scale(1.05); }
+  45.31% { transform: translate3d(25.09vw, 18.41vh, 0) scale(1.1); }
+  46.88% { transform: translate3d(21.83vw, 22.31vh, 0) scale(1.12); }
+  48.44% { transform: translate3d(20.25vw, 23.79vh, 0) scale(1.12); }
+  50% { transform: translate3d(20vw, 24vh, 0) scale(1.12); }
+  51.56% { transform: translate3d(19.74vw, 24.21vh, 0) scale(1.12); }
+  53.12% { transform: translate3d(18vw, 25.49vh, 0) scale(1.11); }
+  54.69% { transform: translate3d(13.59vw, 27.94vh, 0) scale(1.09); }
+  56.25% { transform: translate3d(6.62vw, 30.5vh, 0) scale(1.03); }
+  57.81% { transform: translate3d(-0.63vw, 31.93vh, 0) scale(0.97); }
+  59.38% { transform: translate3d(-5.59vw, 32.17vh, 0) scale(0.94); }
+  60.94% { transform: translate3d(-7.68vw, 32.04vh, 0) scale(0.93); }
+  62.5% { transform: translate3d(-8vw, 32vh, 0) scale(0.93); }
+  64.06% { transform: translate3d(-8.32vw, 31.96vh, 0) scale(0.93); }
+  65.62% { transform: translate3d(-10.34vw, 31.6vh, 0) scale(0.93); }
+  67.19% { transform: translate3d(-14.8vw, 30.2vh, 0) scale(0.94); }
+  68.75% { transform: translate3d(-20.81vw, 27.12vh, 0) scale(0.98); }
+  70.31% { transform: translate3d(-26.23vw, 23.09vh, 0) scale(1.01); }
+  71.88% { transform: translate3d(-29.53vw, 19.8vh, 0) scale(1.03); }
+  73.44% { transform: translate3d(-30.81vw, 18.25vh, 0) scale(1.04); }
+  75% { transform: translate3d(-31vw, 18vh, 0) scale(1.04); }
+  76.56% { transform: translate3d(-31.19vw, 17.75vh, 0) scale(1.04); }
+  78.12% { transform: translate3d(-32.28vw, 16.06vh, 0) scale(1.04); }
+  79.69% { transform: translate3d(-34.28vw, 11.85vh, 0) scale(1.03); }
+  81.25% { transform: translate3d(-36.25vw, 5.31vh, 0) scale(1.01); }
+  82.81% { transform: translate3d(-37.43vw, -1.37vh, 0) scale(1); }
+  84.38% { transform: translate3d(-37.87vw, -5.86vh, 0) scale(0.99); }
+  85.94% { transform: translate3d(-37.99vw, -7.72vh, 0) scale(0.99); }
+  87.5% { transform: translate3d(-38vw, -8vh, 0) scale(0.99); }
+  89.06% { transform: translate3d(-38.01vw, -8.28vh, 0) scale(0.99); }
+  90.62% { transform: translate3d(-38.08vw, -10.03vh, 0) scale(1); }
+  92.19% { transform: translate3d(-38.1vw, -13.79vh, 0) scale(1.01); }
+  93.75% { transform: translate3d(-37.62vw, -18.69vh, 0) scale(1.05); }
+  95.31% { transform: translate3d(-36.19vw, -23.05vh, 0) scale(1.09); }
+  96.88% { transform: translate3d(-34.33vw, -25.75vh, 0) scale(1.1); }
+  98.44% { transform: translate3d(-33.2vw, -26.84vh, 0) scale(1.1); }
+  100% { transform: translate3d(-33vw, -27vh, 0) scale(1.1); }
+}
+/*AURORA-KEYFRAMES-END*/
+
+@media (max-width: 640px) {
+  .aurora span { filter: blur(46px); }
+  .aurora { opacity: 0.5; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aurora span { animation: none !important; }
+  .aurora { animation: none; }
+}
+
+/* ============ 入场动画 ============ */
+@keyframes enter {
+  0% { opacity: 0; transform: translateY(16px); filter: blur(6px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+.enter { animation: enter 0.7s cubic-bezier(0.22, 0.61, 0.36, 1) var(--d, 0ms) backwards; }
+
+/* 网格容器：子项依次入场（最多 20 项，之后不再累加延迟） */
+.stagger > * { animation: enter 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) backwards; }
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 35ms; }
+.stagger > *:nth-child(3) { animation-delay: 70ms; }
+.stagger > *:nth-child(4) { animation-delay: 105ms; }
+.stagger > *:nth-child(5) { animation-delay: 140ms; }
+.stagger > *:nth-child(6) { animation-delay: 175ms; }
+.stagger > *:nth-child(7) { animation-delay: 210ms; }
+.stagger > *:nth-child(8) { animation-delay: 245ms; }
+.stagger > *:nth-child(9) { animation-delay: 280ms; }
+.stagger > *:nth-child(10) { animation-delay: 315ms; }
+.stagger > *:nth-child(11) { animation-delay: 350ms; }
+.stagger > *:nth-child(12) { animation-delay: 385ms; }
+.stagger > *:nth-child(n + 13) { animation-delay: 420ms; }
+@media (prefers-reduced-motion: reduce) {
+  .enter, .stagger > * { animation: none; }
+}
+
 @layer components {
   .card {
-    @apply bg-card border border-line rounded-lg overflow-hidden transition-all duration-200;
+    @apply bg-card/85 backdrop-blur-sm border border-line rounded-xl overflow-hidden transition-all duration-300;
+  }
+  .card:hover {
+    border-color: rgb(var(--c-accent) / 0.45);
+    box-shadow: 0 14px 44px -22px rgb(var(--c-accent) / 0.75);
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
-    /* 统一焦点环：键盘用户可见，与 .input 同一规格 */
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed;
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40;
   }
   .btn-primary {
-    @apply btn bg-accent text-on-accent hover:bg-accent-hover;
+    @apply btn text-on-accent;
+    background-image: linear-gradient(135deg, rgb(var(--c-accent)), rgb(var(--c-accent-hover)));
+    box-shadow: 0 8px 24px -12px rgb(var(--c-accent) / 0.9);
   }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-primary:active { filter: brightness(0.95); }
   .btn-ghost {
-    @apply btn bg-chip text-muted hover:bg-hover hover:text-content border border-line;
+    @apply btn bg-chip/70 text-muted hover:bg-hover hover:text-content border border-line;
   }
   .input {
-    @apply bg-chip border border-line rounded-md px-3 py-2 text-sm text-content placeholder:text-faint;
+    @apply bg-chip/70 border border-line rounded-lg px-3 py-2 text-sm text-content placeholder:text-faint transition-colors;
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:border-accent;
   }
   .tag {
-    @apply inline-flex items-center text-xs px-1.5 py-0.5 rounded-full;
+    @apply inline-flex items-center text-xs px-1.5 py-0.5 rounded-full backdrop-blur-sm;
   }
-  /* 小尺寸按钮：定义在 .btn-* 之后，确保尺寸覆盖生效（与 .btn-primary / .btn-ghost 组合使用） */
   .btn-sm {
     @apply btn px-2.5 py-1 text-xs;
   }
-  /* 胶囊控件（筛选、分类标签）：统一内边距与圆角 */
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] transition-colors;
   }
@@ -117,6 +405,19 @@ body {
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
     @apply bg-line rounded-full;
+  }
+  /* 顶栏胶囊：毛玻璃 + 描边随滚动状态切换（scrolled 时由 header.tsx 换上更实的底与阴影） */
+  .topbar {
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    transition: background-color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
+  }
+  /* 搜索胶囊：聚焦时外发光，与极光主色呼应 */
+  .capsule {
+    transition: box-shadow 0.3s ease, border-color 0.2s ease, background-color 0.2s ease;
+  }
+  .capsule:focus-within {
+    box-shadow: 0 0 0 4px rgb(var(--c-accent) / 0.14), 0 22px 60px -30px rgb(var(--c-accent) / 0.95);
   }
 }
 
@@ -129,18 +430,27 @@ body {
 .episode-active {
   background: rgb(var(--c-accent)) !important;
   border-color: rgb(var(--c-accent)) !important;
-  /* 暗色下霓虹蓝底对白字对比度不足，统一用 on-accent（亮色白 / 暗色深） */
   color: rgb(var(--c-on-accent)) !important;
 }
 
-/* 品牌渐变字（沿用旧版 LibreTV 的霓虹蓝→霓虹粉） */
+/* 品牌渐变字：靛紫 → 青 → 粉，并缓慢横向流动 */
 .brand-gradient {
-  background: linear-gradient(to right, #00ccff, #ff3c78);
+  background-image: linear-gradient(100deg, #7c6cff 0%, #22d3ee 45%, #f472b6 100%);
+  background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
+  animation: brand-pan 9s ease-in-out infinite alternate;
 }
+@keyframes brand-pan {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
+}
+@media (prefers-reduced-motion: reduce) { .brand-gradient { animation: none; } }
+
+/* 首屏标题光晕 */
+.hero-glow { filter: drop-shadow(0 10px 34px rgb(var(--c-accent) / 0.4)); }
 
 /* LIVE 呼吸红点（直播页标识） */
 .live-dot {
@@ -154,3 +464,42 @@ body {
   0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
   50% { opacity: 0.55; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
 }
+
+/* 骨架屏微光扫过 */
+@keyframes shimmer {
+  0% { background-position: -160% 0; }
+  100% { background-position: 260% 0; }
+}
+.shimmer {
+  background-image: linear-gradient(90deg, transparent 0%, rgb(var(--c-accent) / 0.16) 50%, transparent 100%);
+  background-size: 180% 100%;
+  background-repeat: no-repeat;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+/* ============ 位移折射玻璃（Apple Liquid Glass） ============ */
+/* 引擎在 src/lib/liquid-glass.ts：canvas 烘位移贴图 → feDisplacementMap → backdrop-filter: url(#id)。
+   这里只放「兜底外观」，不做布局改动（尤其不能设 position，抽屉面板靠 absolute 定位）。 */
+.lg-panel {
+  /* 半透明衬底：backdrop-filter 对不透明底无效，且面板上的文字需要压得住光斑 */
+  background: rgb(9 11 16 / 0.62);
+  /* text-shadow 是可继承属性，一次声明即覆盖面板内全部文字 */
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
+}
+:root:not(.dark) .lg-panel {
+  background: rgb(252 252 253 / 0.78);
+  text-shadow: none;
+}
+/* 条状玻璃：顶栏、播放页标题栏。文字细，模糊给中间值 */
+.lg-ctl {
+  background: rgb(9 11 16 / 0.5);
+}
+:root:not(.dark) .lg-ctl {
+  background: rgb(252 252 253 / 0.72);
+}
+.lg-ctl.lg-nofilter { background: rgb(9 11 16 / 0.8); }
+:root:not(.dark) .lg-ctl.lg-nofilter { background: rgb(252 252 253 / 0.92); }
+
+/* 引擎判定浏览器不支持 url() 滤镜时的降级（Safari/Firefox）：靠更实的衬底保住可读性 */
+.lg-panel.lg-nofilter { background: rgb(9 11 16 / 0.88); }
+:root:not(.dark) .lg-panel.lg-nofilter { background: rgb(252 252 253 / 0.94); }
+

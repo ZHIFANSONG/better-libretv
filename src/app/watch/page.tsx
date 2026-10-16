@@ -19,6 +19,8 @@ import { EmptyState, LoadingState, Spinner } from '@/components/states';
 import { SwitchSourceModal } from '@/components/switch-source';
 import { enqueueDownload } from '@/components/download-manager';
 import { Icon } from '@/components/icon';
+import { Header } from '@/components/header';
+import { SiteFooter } from '@/components/site-footer';
 import { useAuth } from '@/components/auth';
 import { resolveSource, useAppStore } from '@/lib/store';
 import {
@@ -72,8 +74,9 @@ function WatchContent() {
     staleTime: 5 * 60_000,
   });
 
+  const videoInfo = detailQuery.data?.videoInfo;
   const episodes = useMemo(() => detailQuery.data?.episodes ?? [], [detailQuery.data]);
-  const videoTitle = titleParam || detailQuery.data?.videoInfo?.title || '未知视频';
+  const videoTitle = titleParam || videoInfo?.title || '未知视频';
 
   // 当前播放地址：优先取剧集列表中的当前集，其次直连 URL 参数
   const currentUrl = useMemo(() => {
@@ -171,70 +174,78 @@ function WatchContent() {
   }, [currentIndex, episodes.length, goEpisode]);
 
   const orderedEpisodes = reversed ? [...episodes].map((_, i) => episodes.length - 1 - i) : episodes.map((_, i) => i);
+  const hasNext = episodes.length > 0 && currentIndex < episodes.length - 1;
+
+  // 下载本集：多集才带集数后缀；单集影片（含电影）文件名就是纯标题
+  const handleDownload = useCallback(() => {
+    if (!currentUrl) return;
+    enqueueDownload({
+      url: currentUrl,
+      title: `${videoTitle}${episodes.length > 1 ? ` 第${currentIndex + 1}集` : ''}`,
+      format: 'MP4',
+    });
+    // 「已加入下载队列」由 DownloadManager 在真正入队后提示：
+    // 这里先提示的话，用户随后取消保存位置会出现「已加入→已取消」的矛盾
+  }, [currentUrl, videoTitle, episodes.length, currentIndex]);
+
+  // 侧栏采集源列表：已勾选的源名；当前源来自 URL（不在勾选列表）时补进首位
+  const sourceNames = useMemo(() => {
+    const names = store.selectedKeys
+      .map((k) => resolveSource(store, k)?.name)
+      .filter((n): n is string => Boolean(n));
+    if (source && !names.includes(source.name)) names.unshift(source.name);
+    return names;
+  }, [store, source]);
 
   if (!verified) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-faint text-sm">等待访问验证...</p>
+      <div className="g-shell min-h-screen flex flex-col">
+        <Header />
+        <main className="g-page flex-1 flex items-center justify-center">
+          <p className="text-faint text-sm">等待访问验证...</p>
+        </main>
       </div>
     );
   }
 
   if (!source) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="text-center max-w-md">
-          <h1 className="text-content font-medium mb-2">点播源不存在</h1>
-          <p className="text-sm text-muted mb-4">
-            该视频来自点播源「{sourceKey}」，但它可能已被删除。请在设置中重新添加后重试。
-          </p>
-          <Link href="/" className="btn-primary">返回首页</Link>
-        </div>
+      <div className="g-shell min-h-screen flex flex-col">
+        <Header />
+        <main className="g-page flex-1 flex items-center justify-center">
+          <div className="text-center max-w-md">
+            <h1 className="text-content font-medium mb-2">点播源不存在</h1>
+            <p className="text-sm text-muted mb-4">
+              该视频来自点播源「{sourceKey}」，但它可能已被删除。请在设置中重新添加后重试。
+            </p>
+            <Link href="/" className="g-act pri">返回首页</Link>
+          </div>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur border-b border-line">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-3">
-          <BackButton />
-          <HomeButton />
-          <div className="min-w-0">
-            <h1 className="text-sm font-medium text-content truncate">{videoTitle}</h1>
-            <p className="text-xs text-faint">
-              {source.name}
-              {episodes.length > 0 && ` · 第 ${currentIndex + 1}/${episodes.length} 集`}
-            </p>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              className="btn-ghost btn-sm"
-              onClick={() => {
-                if (!currentUrl) return;
-                enqueueDownload({
-                  url: currentUrl,
-                  // 多集才带集数后缀；单集影片（含电影）文件名就是纯标题
-                  title: `${videoTitle}${episodes.length > 1 ? ` 第${currentIndex + 1}集` : ''}`,
-                  format: 'MP4',
-                });
-                // 「已加入下载队列」由 DownloadManager 在真正入队后提示：
-                // 这里先提示的话，用户随后取消保存位置会出现「已加入→已取消」的矛盾
-              }}
-            >
-              下载本集
-            </button>
-            <button className="btn-ghost btn-sm" onClick={() => setSwitchOpen(true)}>
-              切换资源
-            </button>
-          </div>
-        </div>
-      </header>
+    <div className="g-shell min-h-screen flex flex-col">
+      <Header />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-4">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
+      <main className="g-page flex-1">
+        {/* 播放页次级条：返回 + 当前源，动作放右侧（提案稿的浮动胶囊形态） */}
+        <div className="g-subbar lg g-glass" data-lg="depth=22 k=0.8">
+          <BackButton />
+          <span className="g-src-name">
+            {source.name}
+            {episodes.length > 0 && ` · 第 ${currentIndex + 1}/${episodes.length} 集`}
+          </span>
+          <span className="g-spacer" />
+          <button className="g-act" onClick={handleDownload}>下载本集</button>
+          <button className="g-act" onClick={() => setSwitchOpen(true)}>切换资源</button>
+        </div>
+
+        <div className="g-layout">
           <div>
-            <div className="aspect-video bg-black rounded-lg overflow-hidden">
+            {/* 舞台：16:9 圆角，与提案稿一致 */}
+            <div className="g-stage">
               {currentUrl ? (
                 <PlayerShell
                   url={currentUrl}
@@ -242,8 +253,8 @@ function WatchContent() {
                   adFilter={store.adFilter}
                   autoplayNext={store.autoplayNext}
                   episodeKey={`${sourceKey}:${vodId}:${currentIndex}`}
-                  nextUrl={currentIndex + 1 < episodes.length ? episodes[currentIndex + 1] : undefined}
-                  nextEpisodeKey={currentIndex + 1 < episodes.length ? `${sourceKey}:${vodId}:${currentIndex + 1}` : undefined}
+                  nextUrl={hasNext ? episodes[currentIndex + 1] : undefined}
+                  nextEpisodeKey={hasNext ? `${sourceKey}:${vodId}:${currentIndex + 1}` : undefined}
                   getRestorePosition={getRestorePosition}
                   onTimeUpdate={handleProgress}
                   onPause={handleProgress}
@@ -262,80 +273,134 @@ function WatchContent() {
               )}
             </div>
 
-            {/* 操作栏 */}
-            <div className="flex flex-wrap items-center gap-2 mt-3">
-              <button
-                className="btn-ghost btn-sm"
-                disabled={currentIndex <= 0}
-                onClick={() => goEpisode(currentIndex - 1)}
-              >
-                上一集
-              </button>
-              <button
-                className="btn-ghost btn-sm"
-                disabled={episodes.length === 0 || currentIndex >= episodes.length - 1}
-                onClick={() => goEpisode(currentIndex + 1)}
-              >
-                下一集
-              </button>
-              <label className="flex items-center gap-1.5 text-xs text-muted ml-auto cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="h-3.5 w-3.5 accent-[#2563eb]"
-                  checked={store.autoplayNext}
-                  onChange={(e) => store.updateSettings({ autoplayNext: e.target.checked })}
-                />
-                自动连播
-              </label>
+            {/* 信息卡：标题标签 + 元信息 + 简介 + 动作 */}
+            <div className="g-info lg lg-panel" data-lg="depth=26 k=0.85 blur=14">
+              <h1>
+                {videoTitle}
+                {videoInfo?.remarks && <s>{videoInfo.remarks}</s>}
+                {videoInfo?.year && <s>{videoInfo.year}</s>}
+              </h1>
+              <div className="g-sub">
+                <span>{source.name}</span>
+                {videoInfo?.typeName && <span>{videoInfo.typeName}</span>}
+                {videoInfo?.area && <span>{videoInfo.area}</span>}
+                {videoInfo?.director && <span>导演 {videoInfo.director}</span>}
+                {episodes.length > 0 && <span>共 {episodes.length} 集</span>}
+              </div>
+              {videoInfo?.desc && <p className="g-desc">{videoInfo.desc}</p>}
+
+              <div className="g-acts">
+                <button
+                  className="g-act"
+                  disabled={currentIndex <= 0}
+                  onClick={() => goEpisode(currentIndex - 1)}
+                >
+                  上一集
+                </button>
+                <button
+                  className="g-act"
+                  disabled={!hasNext}
+                  onClick={() => goEpisode(currentIndex + 1)}
+                >
+                  下一集
+                </button>
+                <label className="g-act">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-[#2563eb]"
+                    checked={store.autoplayNext}
+                    onChange={(e) => store.updateSettings({ autoplayNext: e.target.checked })}
+                  />
+                  自动连播
+                </label>
+                <button className="g-act" onClick={handleDownload}>下载本集</button>
+              </div>
             </div>
           </div>
 
-          {/* 剧集侧栏 */}
-          <aside className="bg-surface-raised rounded-lg p-3 h-fit">
-            <div className="flex items-center justify-between gap-2 mb-2.5">
-              <h2 className="text-sm font-semibold text-content">
-                剧集列表{episodes.length > 0 && `（${episodes.length}）`}
-              </h2>
-              {/* 排列开关紧贴它所作用的列表：放在这里才看得出它管的是这一栏的顺序 */}
-              {episodes.length > 1 && (
-                <button
-                  className="btn-ghost btn-sm shrink-0"
-                  onClick={() => setReversed((v) => !v)}
-                  aria-label={reversed ? '切换为正序排列' : '切换为倒序排列'}
-                  title="调整剧集列表的排列顺序"
-                >
-                  <Icon
-                    name="arrowDown"
-                    className={cn('w-3.5 h-3.5 transition-transform', reversed && 'rotate-180')}
-                  />
-                  {reversed ? '正序排列' : '倒序排列'}
-                </button>
+          {/* 侧栏：采集源 / 选集 / 快捷键 */}
+          <aside className="g-side">
+            <div className="g-card lg lg-panel" data-lg="depth=28 k=0.9 blur=16">
+              <h4>
+                采集源 <em>sources</em>
+              </h4>
+              {sourceNames.length > 0 ? (
+                <div className="g-src">
+                  {sourceNames.map((n) => (
+                    <span key={n} className={cn(n === source.name && 'on')}>{n}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-faint">当前源来自分享链接，未加入已启用列表</p>
+              )}
+              <button
+                className="g-act"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={() => setSwitchOpen(true)}
+              >
+                搜索其它采集源
+              </button>
+            </div>
+
+            <div className="g-card lg lg-panel" data-lg="depth=28 k=0.9 blur=16">
+              <h4>
+                选集
+                {episodes.length > 1 && (
+                  <button
+                    className="g-act"
+                    onClick={() => setReversed((v) => !v)}
+                    aria-label={reversed ? '切换为正序排列' : '切换为倒序排列'}
+                    title="调整剧集列表的排列顺序"
+                  >
+                    <Icon
+                      name="arrowDown"
+                      className={cn('w-3.5 h-3.5 transition-transform', reversed && 'rotate-180')}
+                    />
+                    {reversed ? '正序' : '倒序'}
+                  </button>
+                )}
+                <em>{episodes.length > 0 ? `${episodes.length} 集` : 'episodes'}</em>
+              </h4>
+              {episodes.length === 0 ? (
+                detailQuery.isLoading ? (
+                  <LoadingState />
+                ) : (
+                  <EmptyState variant="plain" title={detailQuery.isError ? '获取剧集失败' : '暂无剧集信息'} />
+                )
+              ) : (
+                <div className="g-eps">
+                  {orderedEpisodes.map((realIndex) => (
+                    <EpisodeButton
+                      key={realIndex}
+                      index={realIndex}
+                      active={realIndex === currentIndex}
+                      onClick={() => goEpisode(realIndex)}
+                    />
+                  ))}
+                </div>
               )}
             </div>
-            {episodes.length === 0 ? (
-              detailQuery.isLoading ? (
-                <LoadingState />
-              ) : (
-                <EmptyState variant="plain" title={detailQuery.isError ? '获取剧集失败' : '暂无剧集信息'} />
-              )
-            ) : (
-              <div className="grid grid-cols-5 lg:grid-cols-4 gap-1.5 max-h-[65vh] overflow-y-auto scrollbar-thin pr-1">
-                {orderedEpisodes.map((realIndex) => (
-                  <EpisodeButton
-                    key={realIndex}
-                    index={realIndex}
-                    active={realIndex === currentIndex}
-                    onClick={() => goEpisode(realIndex)}
-                  />
-                ))}
+
+            <div className="g-card lg lg-panel" data-lg="depth=28 k=0.9 blur=16">
+              <h4>
+                快捷键 <em>keys</em>
+              </h4>
+              <div className="g-shortcut">
+                <kbd>空格</kbd> 播放/暂停 · <kbd>←</kbd>
+                <kbd>→</kbd> 快退/快进 5s
+                <br />
+                <kbd>↑</kbd>
+                <kbd>↓</kbd> 音量 · <kbd>F</kbd> 全屏
+                <br />
+                <kbd>Alt</kbd>+<kbd>←</kbd>
+                <kbd>→</kbd> 切换集数
               </div>
-            )}
-            <p className="hidden md:block text-[10px] text-faint mt-3 leading-relaxed">
-              快捷键：空格 播放/暂停 · ←/→ 快退/快进 5s · ↑/↓ 音量 · F 全屏 · Alt+←/→ 切换集数
-            </p>
+            </div>
           </aside>
         </div>
       </main>
+
+      <SiteFooter />
 
       {switchOpen && (
         <SwitchSourceModal
@@ -359,44 +424,27 @@ function EpisodeButton({ index, active, onClick }: { index: number; active: bool
   }, [active]);
 
   return (
-    <button
-      ref={ref}
-      className={cn('btn btn-sm !px-1', active ? 'episode-active' : 'btn-ghost')}
-      onClick={onClick}
-    >
+    <button ref={ref} className={cn('g-ep', active && 'on')} onClick={onClick}>
       {index + 1}
     </button>
   );
 }
 
+/** 返回上一页：无历史时回首页（外链直开场景） */
 function BackButton() {
   const router = useRouter();
   return (
     <button
-      className="p-2 -ml-2 rounded-md text-muted hover:text-content hover:bg-hover transition-colors"
+      className="g-act ic"
       onClick={() => {
         if (window.history.length > 1) router.back();
         else router.push('/');
       }}
       aria-label="返回"
     >
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
       </svg>
     </button>
-  );
-}
-
-/** 首页按钮：直达首页，避免从外链进入时逐级 back */
-function HomeButton() {
-  return (
-    <Link
-      href="/"
-      className="p-2 rounded-md text-muted hover:text-content hover:bg-hover transition-colors"
-      aria-label="回首页"
-      title="回首页"
-    >
-      <Icon name="home" className="w-5 h-5" />
-    </Link>
   );
 }
