@@ -43,62 +43,63 @@ interface PlayerShellProps {
 }
 
 /**
- * iPadOS 13+ 的 Safari 默认按桌面 UA 上报（"Macintosh"），所以这里除了 iPhone/iPad/iPod，
- * 还要认「MacIntel + 多点触控」；再补一条 Artplayer 自带的 Safari 判定兜底（老 iPad 的 UA）。
- * 只有 Mac 型 UA 配多点触控才算 iPadOS；带触控屏的 Windows 笔记本 UA 不含 Macintosh，不会被误判。
+ * 是否 Apple 触屏设备（iPhone / iPad / iPadOS 桌面 UA）。
+ *
+ * iPadOS 13+ 的 Safari 默认按桌面 UA 上报（"Macintosh"），所以除了 iPhone/iPad/iPod 的 UA，
+ * 还要认「Mac 型 UA + 多点触控」。注意**不能**再并 Artplayer.utils.isSafari 兜底：
+ * 那不是设备判断而是浏览器判断，桌面 Mac Safari 会被误判成 iPad，
+ * 全屏按钮就被改道去调 webkitEnterFullscreen —— 那正是「点了全屏没反应」的来源。
  */
 const isAppleTouchDevice = (): boolean => {
   if (typeof navigator === 'undefined') return false;
-  const ua = navigator.userAgent;
-  if (/iPhone|iPad|iPod/i.test(ua)) return true;
-  // iPadOS 桌面 UA：Macintosh + 多点触控
-  if (/\bMacintosh\b/.test(ua) && navigator.maxTouchPoints > 1) return true;
-  // 原来这里还并了 Artplayer.utils.isSafari 兜底，桌面 Mac 的 Safari 会被误判：
-  // 桌面 Safari 有 Fullscreen API 全屏，却硬走 webkitEnterFullscreen，
-  // 结果是点了全屏没反应（或者在 Mac 上被浏览器拦掉）。现在只认真正的 Apple 触屏设备。
-  return false;
+  return isAppleTouchUA(navigator.userAgent, navigator.maxTouchPoints);
 };
 
+/** 抽出来便于单测/日志：UA 判定本身不依赖运行环境 */
+function isAppleTouchUA(ua: string, maxTouchPoints: number): boolean {
+  if (/iPhone|iPad|iPod/i.test(ua)) return true;
+  // iPadOS 桌面 UA：Macintosh + 多点触控（桌面 Mac 的触控板 maxTouchPoints 为 0）
+  return /\bMacintosh\b/.test(ua) && maxTouchPoints > 1;
+}
+
 /**
- * 只有「真的能进原生全屏」时才把全屏改道到系统播放器。
- * 桌面 Safari / Edge / Chrome 的 webkitEnterFullscreen 存在但会把播放拉走或直接无效，
- * 必须留在 Artplayer 自带的元素全屏上。
+ * 设备是否真的提供原生（系统播放器）全屏入口。
+ *
+ * 只认 webkitEnterFullscreen —— 这是 iOS/iPadOS 的专属接口，真正把视频交给系统播放器。
+ * webkitEnterFullScreen（大写 S）是老 Android / 部分浏览器外壳的别名，效果只是把 <video> 撑满页面，
+ * 也就是用户说的「还是网页播放器」，所以不再算数；没有这个接口时落回 Fullscreen API。
  */
 const canUseNativeFullscreen = (video?: HTMLVideoElement): boolean => {
   if (!video) return false;
-  const v = video as HTMLVideoElement & {
-    webkitEnterFullscreen?: () => void;
-    webkitEnterFullScreen?: () => void;
-  };
-  return typeof v.webkitEnterFullscreen === 'function' || typeof v.webkitEnterFullScreen === 'function';
+  const v = video as HTMLVideoElement & { webkitEnterFullscreen?: () => void };
+  return typeof v.webkitEnterFullscreen === 'function';
 };
 
 /**
  * 把 <video> 交给系统播放器（iOS/iPadOS 的 HTMLVideoElement.webkitEnterFullscreen）。
  *
- * 为什么需要：iOS/iPadOS 上真正能「投到系统播放器 / 画中画 / 屏幕旋转」的是原生全屏，
+ * iOS/iPadOS 上真正能「投到系统播放器 / 画中画 / 屏幕旋转」的是原生全屏，
  * 而 Fullscreen API + playsinline 只会把容器撑满网页，看起来像全屏、实际仍是网页播放器。
- * 代价是原生全屏期间 Artplayer 的控件、上下集与广告过滤都会失效，所以只在 Apple 触屏设备上走这条路；
- * 桌面端完全不受影响（那条分支里 fullscreen 仍然是 Artplayer 自带的元素全屏）。
+ * 代价是原生全屏期间 Artplayer 的控件、上下集与广告过滤都会失效，所以只在 Apple 触屏设备上走这条路。
  */
 function enterNativeFullscreen(video?: HTMLVideoElement) {
   if (!video) return;
   const v = video as HTMLVideoElement & {
     webkitEnterFullscreen?: () => void;
-    webkitEnterFullScreen?: () => void;
     webkitDisplayingFullscreen?: boolean;
   };
-  // 原生全屏接管播放时不接受 JS 控制，先暂停并在退出后恢复，
-  // 否则退出原生全屏会落在「已经播过一段、进度条却停在进场时刻」的错位状态
-  const wasPlaying = !v.paused;
-  v.pause();
-  const restore = () => {
-    v.removeEventListener('webkitendfullscreen', restore);
-    if (wasPlaying) void v.play().catch(() => {});
-  };
-  v.addEventListener('webkitendfullscreen', restore);
-  if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
-  else if (v.webkitEnterFullScreen) v.webkitEnterFullScreen();
+  /*
+   * 不暂停、不调 play()。
+   * 以前这里先 pause()、出场后 play()，在 iOS 上正是「点了全屏没反应」的元凶：
+   * 原生全屏进入中一旦暂停，系统播放器可能直接停在待播态甚至不拉起；
+   * 而退出时用 JS 调 play() 又会被移动端的「必须由用户手势触发」规则拦掉。
+   * 让播放连续走，系统播放器接管后自己会接着播。
+   */
+  try {
+    v.webkitEnterFullscreen?.();
+  } catch {
+    /* 个别浏览器外壳会直接抛错，交给调用方的兜底分支 */
+  }
 }
 
 export function PlayerShell({
@@ -359,7 +360,14 @@ export function PlayerShell({
       hotkey: false,
       theme: '#2563eb',
       lang: navigator.language.toLowerCase().startsWith('zh') ? 'zh-cn' : 'en',
-      moreVideoAttr: { crossOrigin: 'anonymous', playsInline: true },
+      /*
+       * 不能用 crossOrigin="anonymous"：
+       * 1. 采集站的 m3u8/ts 基本都不带 Access-Control-Allow-Origin，加上它 Safari 直接把整条流判败；
+       * 2. 更要命的是——带 crossOrigin 的视频在 iOS/iPadOS 上会被系统判为「跨域媒体」，
+       *    video.webkitEnterFullscreen() 调用后不会拉起系统全屏播放器（点了全屏毫无反应）。
+       * 代价：canvas 截图遇到跨域源会抛 SecurityError，play() 里的截图已经 catch 掉，不影响播放。
+       */
+      moreVideoAttr: { playsInline: true },
       customType: {
         m3u8: (video: HTMLVideoElement, mediaUrl: string) => {
           setupHls(video, mediaUrl, true);
@@ -400,14 +408,21 @@ export function PlayerShell({
             return;
           }
           if (on) {
+            // 已经在全屏里再点一次：交给系统/浏览器自己的关闭逻辑，别重复进去
+            if ((v as HTMLVideoElement & { webkitDisplayingFullscreen?: boolean }).webkitDisplayingFullscreen) return;
             // 网页全屏状态先退出，否则原生全屏退出后会落回「网页全屏」而不是正常页面
             if (player.fullscreenWeb) player.fullscreenWeb = false;
             enterNativeFullscreen(v);
             return;
           }
-          // 退出交给系统播放器自带的关闭按钮；有些实现支持 webkitExitFullscreen，顺手调用以求稳
+          /*
+           * 退出：iOS 的原生全屏没有给 JS 的退出接口，只能点系统播放器左上角「完成」。
+           * 但桌面 Safari 走的是元素全屏，必须真的退出来，否则再点一次按钮毫无反应。
+           * 这里把两条路都试一遍：先 webkitExitFullscreen(有的实现有)，再 exitFullscreen。
+           */
           const exitable = v as HTMLVideoElement & { webkitExitFullscreen?: () => void };
-          exitable.webkitExitFullscreen?.();
+          if (exitable.webkitExitFullscreen) exitable.webkitExitFullscreen();
+          else if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
         },
       });
     }
