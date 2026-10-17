@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Header } from '@/components/header';
 import { RecommendSection, type HeroTab } from '@/components/douban-section';
 import { ContinueWatchingSection } from '@/components/continue-watching';
@@ -40,6 +40,7 @@ export default function HomePage() {
 
 function HomeContent() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const legacyQuery = searchParams.get('s') || '';
@@ -53,6 +54,17 @@ function HomeContent() {
   const segRef = useRef<HTMLDivElement>(null);
   const segIndRef = useRef<HTMLSpanElement>(null);
   const segBoxRef = useRef<BubbleBox | null>(null);
+
+  // 按钮的「跳转中」状态必须有兜底复位：push 失败（离线 / 被拦截）时首页会永久禁用搜索。
+  // 用 8s 超时兜底，另外路由一变就复位。
+  useEffect(() => {
+    if (!navigating) return;
+    const timer = window.setTimeout(() => setNavigating(false), 8000);
+    return () => window.clearTimeout(timer);
+  }, [navigating]);
+  useEffect(() => {
+    setNavigating(false);
+  }, [pathname, searchParams]);
 
   // 旧版首页搜索结果是 /?s=xxx：直接搬到搜索页，避免同一功能保留两套实现
   useEffect(() => {
@@ -189,7 +201,8 @@ function HomeContent() {
                 </button>
               )}
               <button type="submit" className={cn('go', navigating && 'busy')} disabled={navigating}>
-                搜索
+                <Icon name="search" className="go-ic-only w-4 h-4" />
+                <span className="go-tx">搜索</span>
               </button>
             </form>
 

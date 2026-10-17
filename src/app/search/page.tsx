@@ -18,7 +18,7 @@ import { Icon } from '@/components/icon';
 import { SiteFooter } from '@/components/site-footer';
 
 /**
- * 搜索页（proposal 版）：吸顶玻璃搜索条 + 带计数的分类胶囊 + g-row 结果行列表。
+ * 搜索页（proposal 版）：高斯模糊搜索条 + 带计数的分类胶囊 + g-rcard 结果网格（横屏 3~4 列）。
  * URL 由 ?q= 驱动（兼容旧链接的 ?s=），可后退/分享；搜索状态仍由 React Query 管理。
  */
 const RESULT_PAGE_SIZE = 60;
@@ -156,7 +156,12 @@ function SearchContent() {
     runSearch(text);
   };
 
-  const isSearching = Boolean(urlQuery) && searchQuery.isFetching && !searchQuery.data;
+  // 换关键词的首帧 data 会被 v5 清成 undefined、但 isFetching 还没翻上来，
+  // 用 isPending 兜住这个窗口，否则会闪一下空态（子代理审计发现）。
+  const isSearching =
+    Boolean(urlQuery) &&
+    (searchQuery.isPending || searchQuery.isFetching) &&
+    !searchQuery.data;
   const streamedList = useMemo(() => streamedOutcomes.flatMap((o) => o.list), [streamedOutcomes]);
   const list = useMemo(
     () => searchQuery.data?.list ?? (isSearching ? streamedList : []),
@@ -257,8 +262,8 @@ function SearchContent() {
               </button>
             )}
             <button type="submit" className={cn('go', isSearching && 'busy')}>
-              <Icon name="search" className="w-4 h-4" />
-              搜索
+              <Icon name="search" className="go-ic w-4 h-4" />
+              <span className="go-tx">搜索</span>
             </button>
           </form>
 
@@ -343,9 +348,11 @@ function SearchContent() {
               <NoSourceGuide hasSources={customAPIs.length > 0 || envSources.length > 0} />
             ) : groups.length > 0 ? (
               <>
-                {visibleGroups.map((group) => (
-                  <AggregatedCard key={group.key} group={group} onOpen={(item) => setDetailItem(item)} />
-                ))}
+                <div className="g-rows">
+                  {visibleGroups.map((group) => (
+                    <AggregatedCard key={group.key} group={group} onOpen={(item) => setDetailItem(item)} />
+                  ))}
+                </div>
                 {groups.length > visibleCount && (
                   <div className="flex justify-center mt-6">
                     <button className="g-btn" onClick={() => setVisibleCount((v) => v + RESULT_PAGE_SIZE)}>
@@ -397,14 +404,15 @@ function SearchContent() {
  */
 function ResultsSkeleton() {
   return (
-    <div className="g-soft-group" aria-hidden>
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="g-row">
-          <div className="g-th bg-chip" />
-          <div className="g-bd space-y-2 pt-1">
-            <div className="h-4 w-1/3 rounded bg-chip" />
-            <div className="h-3 w-3/4 rounded bg-chip" />
-            <div className="h-3 w-1/2 rounded bg-chip" />
+    <div className="g-soft-group g-rows" aria-hidden>
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="g-rcard">
+          <div className="g-rcard-pic bg-chip" />
+          <div className="g-rcard-bd">
+            <div className="h-3.5 w-2/3 rounded bg-chip" />
+            <div className="mt-2 h-2.5 w-1/3 rounded bg-chip" />
+            <div className="mt-3 h-2.5 w-full rounded bg-chip" />
+            <div className="mt-1.5 h-2.5 w-4/5 rounded bg-chip" />
           </div>
         </div>
       ))}

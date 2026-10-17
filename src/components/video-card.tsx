@@ -60,9 +60,10 @@ export function aggregateResults(list: SearchResultItem[]): AggregatedGroup[] {
 }
 
 /**
- * 聚合结果行（proposal 版）：提案稿的 .g-row 列表形态 —— 88px 竖版缩略图 +
- * 标题（附年份/类型徽章）+ 两行简介 + 每条来源一个可点健康胶囊。
- * 行本体点击打开第一条来源；胶囊各自指向具体来源，避免旧版「先展开再选」的两次点击。
+ * 聚合结果卡片（m07594 网格版）：搜索结果不再是一行一条的整宽列表（横屏时一行只放得下一部、
+ * 屏幕利用率太低），改成 3~4 列的卡片网格 —— 左侧 2:3 竖版海报（左上角标显示来源数量），
+ * 右侧标题 / 年份类型徽章 / 两行简介。
+ * 点卡片本体打开详情弹窗，在弹窗里再选具体采集源（原来一屏铺满几十个来源胶囊，横屏更浪费）。
  */
 export function AggregatedCard({
   group,
@@ -76,24 +77,30 @@ export function AggregatedCard({
   const [imgFailed, setImgFailed] = useState(false);
   const showImg = !!group.pic && !imgFailed;
   const adult = useMemo(() => group.items.some((i) => i.isAdult), [group.items]);
+  const sourceNames = useMemo(
+    () => Array.from(new Set(group.items.map((i) => i.sourceName).filter(Boolean))),
+    [group.items]
+  );
+  const count = group.items.length;
 
   const activate = () => onOpen(group.items[0]);
 
   return (
     <div
-      className="g-row cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+      className="g-rcard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
       role="button"
       tabIndex={0}
-      aria-label={`${group.name}，${group.items.length} 个来源`}
+      aria-label={group.name + "，" + count + " 个来源"}
+      title={sourceNames.length > 1 ? sourceNames.join("、") : undefined}
       onClick={activate}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           activate();
         }
       }}
     >
-      <div className="g-th bg-chip">
+      <div className="g-rcard-pic">
         {showImg ? (
           <SmartImage
             url={group.pic}
@@ -110,35 +117,21 @@ export function AggregatedCard({
             </svg>
           </div>
         )}
-        <span className="g-th-q">{group.items.length > 1 ? `${group.items.length} 源` : group.items[0].sourceName}</span>
+        <span className="g-rcard-cnt">
+          {count > 1 ? count + " 个来源" : sourceNames[0] || "单一来源"}
+        </span>
       </div>
 
-      <div className="g-bd">
-        <h3 title={group.name}>
-          {group.name}
-          {group.year && <s className="g-badge">{group.year}</s>}
-          {group.typeName && <s className="g-badge">{group.typeName}</s>}
-          {adult && <s className="g-badge">(18+)</s>}
-        </h3>
-        <p>{group.remarks || '暂无介绍'}</p>
-        <div className="g-chips">
-          {group.items.map((item) => (
-            <button
-              key={`${item.sourceKey}_${item.vodId}`}
-              type="button"
-              className={cn('g-chip', item.isAdult && 'warn')}
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpen(item);
-              }}
-              aria-label={`使用 ${item.sourceName} 播放`}
-              title={`${item.sourceName} · ${item.remarks || '暂无介绍'}`}
-            >
-              <i />
-              <span className="truncate max-w-[9em]">{item.sourceName}</span>
-            </button>
-          ))}
-        </div>
+      <div className="g-rcard-bd">
+        <h3 title={group.name}>{group.name}</h3>
+        {(group.year || group.typeName || adult) && (
+          <div className="g-rcard-meta">
+            {group.year && <s>{group.year}</s>}
+            {group.typeName && <s>{group.typeName}</s>}
+            {adult && <s>(18+)</s>}
+          </div>
+        )}
+        <p>{group.remarks || "暂无介绍"}</p>
       </div>
     </div>
   );

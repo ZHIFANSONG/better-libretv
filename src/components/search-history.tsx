@@ -20,6 +20,8 @@ export function useSearchHistory(input: string) {
   /** 键盘高亮项下标，-1 表示未选中 */
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  /** Esc 关闭后的抑制窗口：这段时间内的 focus 不再自动弹出下拉 */
+  const suppressUntil = useRef(0);
 
   const history = useQuery({
     queryKey: ['searchHistory'],
@@ -80,12 +82,18 @@ export function useSearchHistory(input: string) {
   };
 
   const onFocus = () => {
+    // Esc 刚关掉时不立刻重开，否则按 Esc 后输入框仍然聚焦，
+    // 任何一次焦点回流都会把下拉弹回来（子代理审计发现）。
+    if (suppressUntil.current > Date.now()) return;
     setOpen(true);
     history.refetch();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>, onPick: (text: string) => void) => {
     if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      suppressUntil.current = Date.now() + 600;
       close();
       return;
     }
@@ -147,7 +155,7 @@ export function SearchHistoryDropdown({
     <div
       className={cn(
         'absolute left-0 right-0 top-full z-40 overflow-hidden text-left',
-        'g-panel rounded-b-xl animate-fade-in'
+        'g-search-menu animate-fade-in'
       )}
     >
       <div className="flex items-center justify-between pl-4 pr-2 py-2 border-b border-line">

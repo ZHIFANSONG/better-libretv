@@ -482,14 +482,83 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 11px 11px 11px 20px;
+  padding: 9px 9px 9px 18px;
   border-radius: var(--r-pill);
+  /* 纯高斯模糊表面（m07476）：搜索框不再走液态玻璃质感 —— 去掉 glassium BASE_CSS 给的
+     8 层 box-shadow 边饰（rim-light / rim-side / band-light / 红蓝色散 / edge）与顶部 sheen 渐变，
+     只留「模糊 + 半透明白」这一层，边线用极淡的一圈 hairline，视觉上跟主站毛玻璃一致。
+     注意 [glass] 的 BASE_CSS 包在 :where() 里（优先级 0），这里直接写类选择器就能盖住。 */
+  background-color: rgba(255, 255, 255, 0.06);
+  background-image: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 24px -18px rgba(0, 0, 0, 0.9);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  transition: background-color 0.24s var(--ease), border-color 0.24s var(--ease),
+    box-shadow 0.24s var(--ease);
 }
-.g-search.g-open {
+:root:not(.dark) .g-search {
+  background-color: rgba(255, 255, 255, 0.55);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 24px -20px rgba(0, 0, 0, 0.35);
+}
+.g-search:focus-within {
+  background-color: rgba(255, 255, 255, 0.09);
+  border-color: rgba(120, 150, 255, 0.42);
+  box-shadow: 0 10px 30px -18px rgba(77, 107, 254, 0.55);
+}
+:root:not(.dark) .g-search:focus-within {
+  background-color: rgba(255, 255, 255, 0.82);
+  border-color: rgba(77, 107, 254, 0.4);
+}
+/* 展开态：下边线与下圆角都必须让位给下拉，浅色主题的
+   :root:not(.dark) .g-search:focus-within 优先级更高，必须单独再盖一次，
+   否则胶囊底部会横穿一条蓝线（子代理审计发现）。 */
+.g-search.g-open,
+:root:not(.dark) .g-search.g-open {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
-  border-color: rgba(120, 150, 255, 0.5);
-  border-bottom-color: var(--bd);
+  border-bottom-color: transparent;
+}
+/* 历史下拉：搜索框是高斯模糊表面，下拉必须是同一块表面的下半截 ——
+   同底色 + 同 blur，只在下方给 100px 圆角与一圈细线，接缝处不画上边框（m07476）。 */
+.g-search-menu {
+  border-radius: 0 0 var(--r-pill) var(--r-pill);
+  /* 与 .g-search:focus-within 的底色完全一致：下拉出现时搜索框必然处于聚焦态，
+     颜色对不上就会在接缝处断成两层。 */
+  background-color: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 0;
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  box-shadow: 0 22px 40px -30px rgba(0, 0, 0, 0.9);
+}
+:root:not(.dark) .g-search-menu {
+  background-color: rgba(255, 255, 255, 0.82);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 22px 40px -32px rgba(0, 0, 0, 0.4);
+}
+/* 窄屏：搜索按钮收成纯图标（40px 见方），把宽度让给输入框 ——
+   390px 下原来 input 只有 137px，占位文字「搜索影片、剧集、动漫…」要 162px 会被裁掉。 */
+@media (max-width: 480px) {
+  .g-search {
+    padding: 9px 9px 9px 16px;
+    gap: 8px;
+  }
+  .g-search .go {
+    padding: 9px 11px;
+    gap: 0;
+  }
+  .g-search .go .go-tx {
+    display: none;
+  }
+  /* 首页按钮平时只有文字，窄屏才亮出图标当按钮本体 */
+  .g-search .go .go-ic-only {
+    display: block;
+  }
+}
+.g-search .go .go-ic-only {
+  display: none;
 }
 .g-search input {
   flex: 1;
@@ -508,7 +577,13 @@
   color: var(--t4);
 }
 .g-search .go {
-  padding: 9px 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  line-height: 1.2;
+  padding: 9px 20px;
   border-radius: var(--r-pill);
   background: var(--brand);
   color: #fff;
@@ -603,6 +678,157 @@
 :root:not(.dark) .g-src span.on {
   color: var(--brand-deep);
   background: rgba(77, 107, 254, 0.16);
+}
+
+/* ---- 搜索结果网格（m07594：横屏不再一行一部，改 3~4 列卡片） ---- */
+.g-rows {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+/* 中等屏幕起两列 */
+@media (min-width: 640px) {
+  .g-rows {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* 横屏/桌面三列（.g-page 1140px 容器 → 每列约 360px） */
+@media (min-width: 1024px) {
+  .g-rows {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+}
+/* 宽屏四列 */
+@media (min-width: 1440px) {
+  .g-rows {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+  }
+}
+.g-rcard {
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  border-radius: var(--r-panel);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease),
+    transform 0.24s var(--ease);
+}
+:root:not(.dark) .g-rcard {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(0, 0, 0, 0.07);
+}
+.g-rcard:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--bd);
+  transform: translateY(-2px);
+}
+:root:not(.dark) .g-rcard:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.14);
+}
+/* 2:3 竖版海报：桌面约 84px 宽，宽屏 96px */
+.g-rcard-pic {
+  position: relative;
+  flex: none;
+  width: 82px;
+  align-self: flex-start;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r-media);
+  overflow: hidden;
+  background: #141821;
+}
+@media (min-width: 1440px) {
+  .g-rcard-pic {
+    width: 88px;
+  }
+}
+.g-rcard-cnt {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  font-size: 9.5px;
+  line-height: 1.5;
+  padding: 2px 5px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #cfe0ff;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.g-rcard-bd {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+/* 简介吸底：卡片高度由海报决定，简介永远贴着卡片底部，多行标题也不会把版式拉歪 */
+.g-rcard-bd p {
+  margin-top: auto;
+}
+.g-rcard-bd h3 {
+  margin: 1px 0 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--t1);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.g-rcard-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+.g-rcard-meta s {
+  text-decoration: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  color: #cfe0ff;
+  background: rgba(77, 107, 254, 0.24);
+  border: 1px solid rgba(120, 150, 255, 0.42);
+  white-space: nowrap;
+}
+:root:not(.dark) .g-rcard-meta s {
+  color: var(--brand-deep);
+  background: rgba(77, 107, 254, 0.12);
+}
+.g-rcard-bd p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* 窄屏（单列）允许更宽的封面 */
+@media (max-width: 639px) {
+  .g-rcard-pic {
+    width: 76px;
+  }
+  .g-rcard-bd h3 {
+    font-size: 13.5px;
+    -webkit-line-clamp: 1;
+  }
+  .g-rcard-bd p {
+    -webkit-line-clamp: 2;
+    margin-top: 6px;
+  }
 }
 
 /* ---- 搜索结果列表行 ---- */

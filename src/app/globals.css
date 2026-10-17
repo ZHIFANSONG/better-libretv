@@ -352,7 +352,8 @@ body {
 
 /* 路由级 / 结果级加载占位（m06954-2：整组模糊 + 呼吸，替代 shimmer 扫光） */
 .g-soft-group {
-  filter: blur(8px);
+  /* 搜索结果是 4 列小卡，8px 会糊成一团色块，降到 4px 仍能读出「有内容在加载」 */
+  filter: blur(4px);
   opacity: 0.45;
   animation: g-soft-breathe 2.6s ease-in-out infinite;
   pointer-events: none;
