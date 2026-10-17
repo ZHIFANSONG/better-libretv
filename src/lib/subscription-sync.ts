@@ -123,7 +123,9 @@ export async function applyEnvPresets(status: AuthStatusResponse): Promise<void>
   // 应用后当前值 ≠ hot-list，AuthProvider 的幂等重入天然跳过。
   if (status.defaultRecommendSource) {
     const s = useAppStore.getState();
-    if (!s.recommendSourceTouched && s.recommendSource === 'hot-list') {
+    // 出厂默认已改为 douban，这里同步改判：仍是出厂默认（无论 hot-list 还是 douban）
+    // 且没打过「已选择」标记的用户，才跟随部署者的默认值。
+    if (!s.recommendSourceTouched && (s.recommendSource === 'douban' || s.recommendSource === 'hot-list')) {
       useAppStore.setState({ recommendSource: status.defaultRecommendSource });
     }
   }

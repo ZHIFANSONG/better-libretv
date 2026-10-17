@@ -17,7 +17,7 @@ export interface AppSettings {
   yellowFilter: boolean;
   adFilter: boolean;
   doubanEnabled: boolean;
-  /** 首页推荐数据源：豆瓣热门 / Bangumi 每日放送（免 key）/ 影视热榜（60s API） */
+  /** 首页推荐数据源：豆瓣热门（默认）/ Bangumi 每日放送（免 key）/ 影视热榜（60s API） */
   recommendSource: 'douban' | 'bangumi' | 'hot-list';
   /** 用户是否在设置中主动选择过推荐数据源；为 false 时部署者的 DEFAULT_RECOMMEND_SOURCE 默认值可生效 */
   recommendSourceTouched: boolean;
@@ -300,7 +300,9 @@ export const useAppStore = create<AppState>()(
       yellowFilter: true,
       adFilter: true,
       doubanEnabled: true,
-      recommendSource: 'hot-list',
+      // 出厂默认改成豆瓣热门：旧默认 hot-list 走的影视榜单接口常被限流/空返回，
+      // 首页首屏经常是空的；豆瓣热门有封面元数据、命中率高。
+      recommendSource: 'douban',
       recommendSourceTouched: false,
       autoplayNext: true,
       // 直连优先：豆瓣封面有公共镜像 + 内置代理两级兜底（见 buildImageCandidates），
@@ -768,8 +770,9 @@ export const useAppStore = create<AppState>()(
       storage: createJSONStorage(createThrottledStorage),
       // v1：直播源新增归属字段、最近观看新增 sourceUrl。
       // v2：直播源归属改为多引用（fromSubscription 单值 → fromSubscriptions 数组）。
+      // v3：首页推荐默认值 hot-list → douban（影视榜单接口常被限流，首屏常空）。
       // 此前未声明 version 的存量数据会被视为 v0 并走 migrate 补齐。
-      version: 2,
+      version: 3,
       migrate: (persisted, version) => {
         const state = { ...((persisted ?? {}) as Partial<AppState>) };
         if (!Array.isArray(state.liveRecent)) state.liveRecent = [];
@@ -791,6 +794,11 @@ export const useAppStore = create<AppState>()(
               fromSubscriptions,
             };
           });
+        }
+        if (version < 3 && !state.recommendSourceTouched) {
+          // 存量用户的出厂默认仍是 hot-list：没主动选过的跟着新默认走，
+          // 选过的（touched）保持原样，不能因为改默认值就把用户偏好清掉。
+          state.recommendSource = 'douban';
         }
         return state as AppState;
       },

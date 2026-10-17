@@ -4,12 +4,12 @@ import { useAppStore } from '@/lib/store';
 import { Dropdown } from './dropdown';
 
 /**
- * 首页右侧「播放设置」抽屉（proposal 版）：只放真实生效的设置 —— 推荐数据源、
- * 封面图加载方式、自动连播，外加当前启用源总览。改动即时写入 store 并持久化，
- * 与设置抽屉共用同一份状态，不存在两处配置分叉。
+ * 首页右侧「播放设置」抽屉（proposal 版）：只留首页真正用得上的两项 ——
+ * 封面图加载方式、自动连播。推荐数据源已收进「设置 → 首页与内容过滤」：
+ * 它跟「首页推荐」开关是同一件事，而且默认值由部署者的 DEFAULT_RECOMMEND_SOURCE 决定，
+ * 摆在首页抽屉里既占地方又容易和设置里那一处对不上。
  */
 export function PlaySettingsDrawer() {
-  const recommendSource = useAppStore((s) => s.recommendSource);
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const autoplayNext = useAppStore((s) => s.autoplayNext);
   const updateSettings = useAppStore((s) => s.updateSettings);
@@ -34,21 +34,6 @@ export function PlaySettingsDrawer() {
       <h4>
         播放设置 <em>drawer</em>
       </h4>
-
-      <div className="g-drow">
-        <span>推荐来源</span>
-        <Dropdown
-          value={recommendSource}
-          onChange={(v) => updateSettings({ recommendSource: v as typeof recommendSource })}
-          ariaLabel="推荐数据源"
-          options={[
-            { value: 'hot-list', label: '影视热榜' },
-            { value: 'douban', label: '豆瓣热门' },
-            { value: 'bangumi', label: '新番放送' },
-          ]}
-          className="w-[104px]"
-        />
-      </div>
 
       <div className="g-drow">
         <span>封面图</span>
@@ -94,6 +79,7 @@ export function PlaySettingsDrawer() {
         {selectedKeys.length === 0 && <span>未勾选</span>}
       </div>
       {sick > 0 && <p className="g-note">{sick} 个源近期无响应，可到「我的」里查看</p>}
+      <p className="g-note">推荐来源已移到「设置 → 偏好设置 → 首页与内容」，首页默认豆瓣热门。</p>
     </aside>
   );
 }

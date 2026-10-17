@@ -149,6 +149,13 @@ describe('applyEnvPresets · DEFAULT_RECOMMEND_SOURCE（issue #918）', () => {
     expect(useAppStore.getState().recommendSourceTouched).toBe(false);
   });
 
+  it('出厂默认已是 douban：未选择过的用户同样跟随部署者默认值', async () => {
+    useAppStore.setState({ recommendSource: 'douban', recommendSourceTouched: false });
+    await applyEnvPresets(status({ defaultRecommendSource: 'bangumi' }));
+    expect(useAppStore.getState().recommendSource).toBe('bangumi');
+    expect(useAppStore.getState().recommendSourceTouched).toBe(false);
+  });
+
   it('已主动选择过的用户（如 bangumi）不被覆盖', async () => {
     useAppStore.setState({ recommendSource: 'bangumi', recommendSourceTouched: true });
     await applyEnvPresets(status({ defaultRecommendSource: 'douban' }));
