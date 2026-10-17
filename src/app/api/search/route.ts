@@ -36,11 +36,16 @@ const SEARCH_MAX_PAGES = (() => {
 /**
  * 单源总死线（毫秒）：该源所有分页请求必须在时限内完成，到点中断在途请求并标记超时。
  * 没有它时慢源最坏要等「首页 8s + 后续页并行 8s」，拖垮整体响应。
- * 环境变量 SEARCH_SOURCE_TIMEOUT_MS 可配，默认 10s。
+ * 环境变量 SEARCH_SOURCE_TIMEOUT_MS 可配，默认 15s。
+ *
+ * 为什么是 15s 而不是 10s：实测健康源在大陆网络下取首页 + 后续分页普遍要 6~8s，
+ * 少数源（如 360/暴风镜像）单次就能到 9s 以上。10s 死线会让这些「能用但慢」的源
+ * 频繁被标超时，进而被 recordSourceHealth 累积到自动停用（SOURCE_DISABLE_THRESHOLD）。
+ * 客户端是流式的（NDJSON 逐源回吐），慢源不会拖住整体，所以放宽死线没有体验代价。
  */
 const SEARCH_SOURCE_TIMEOUT_MS = (() => {
-  const n = parseInt(process.env.SEARCH_SOURCE_TIMEOUT_MS || '10000', 10);
-  if (!Number.isFinite(n)) return 10000;
+  const n = parseInt(process.env.SEARCH_SOURCE_TIMEOUT_MS || '15000', 10);
+  if (!Number.isFinite(n)) return 15000;
   return Math.min(60000, Math.max(3000, n));
 })();
 
@@ -94,7 +99,9 @@ async function searchSource(source: SourceConfig, wd: string): Promise<SourceSea
   const fetchPage = async (page: number) => {
     const api = `${base}?ac=videolist&wd=${encodeURIComponent(wd)}&pg=${page}`;
     const res = await fetchUpstream(api, {
-      timeoutMs: 8000,
+      // 单页死线留到与整源死线同级：首屏请求被 8s 掐掉时整源其实还有余量，
+      // 外面那层 SEARCH_SOURCE_TIMEOUT_MS 才是真正的上限。
+      timeoutMs: SEARCH_SOURCE_TIMEOUT_MS,
       headers: cmsRequestHeaders(),
       signal: controller.signal,
     });

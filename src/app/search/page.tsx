@@ -8,6 +8,8 @@ import { Header } from '@/components/header';
 import { DetailModal } from '@/components/detail-modal';
 import { AggregatedCard, VideoCard, aggregateResults, type AggregatedGroup } from '@/components/video-card';
 import { useAppStore, resolveSource, isInDisabledSubscription, isSourceDisabled } from '@/lib/store';
+import { buildWatchUrl } from '@/lib/utils';
+import { addSearchHistory } from '@/lib/db';
 import { api } from '@/lib/client-api';
 import type { SearchResultItem, SourceSearchOutcome } from '@/lib/types';
 import { SearchHistoryDropdown, useSearchHistory } from '@/components/search-history';
@@ -16,6 +18,14 @@ import { useToast } from '@/components/toast';
 import { EmptyState } from '@/components/states';
 import { Icon } from '@/components/icon';
 import { SiteFooter } from '@/components/site-footer';
+import dynamic from 'next/dynamic';
+import { useAuth } from '@/components/auth';
+
+// 播放器（artplayer + hls.js）按需加载：不点「播放」就不下载，搜索页首屏 JS 不受影响
+const PlayerShell = dynamic(() => import('@/components/player-shell').then((m) => m.PlayerShell), {
+  ssr: false,
+  loading: () => <div className="g-inline-player-boot">播放器加载中…</div>,
+});
 
 /**
  * 搜索页（proposal 版）：高斯模糊搜索条 + 带计数的分类胶囊 + g-rcard 结果网格（横屏 3~4 列）。
@@ -56,10 +66,22 @@ function SearchContent() {
   const yellowFilter = useAppStore((s) => s.yellowFilter);
   const sourceHealth = useAppStore((s) => s.sourceHealth);
   const subscriptions = useAppStore((s) => s.subscriptions);
+  const autoplayNext = useAppStore((s) => s.autoplayNext);
+  const adFilter = useAppStore((s) => s.adFilter);
+  const { verified } = useAuth();
 
   const [input, setInput] = useState(urlQuery);
   const [bucket, setBucket] = useState<Bucket>('全部');
   const [detailItem, setDetailItem] = useState<SearchResultItem | null>(null);
+  // 与 detailItem 配套的聚合组：弹窗里要列出这部片子的全部来源，光给一条 item 不够
+  const [detailGroup, setDetailGroup] = useState<AggregatedGroup | null>(null);
+  /**
+   * 本页播放器：在搜索结果里点某个源的资源，就在这一页直接播，不再跳到 /watch。
+   * 旧做法是跳走 → 想换别的源得返回 → 重新搜索 → 列表滚动位置全丢，
+   * 「搜完选不了用哪个源的资源」一半是这个问题造成的。
+   */
+  const [playing, setPlaying] = useState<{ item: SearchResultItem; index: number } | null>(null);
+
   const [streamedOutcomes, setStreamedOutcomes] = useState<SourceSearchOutcome[]>([]);
   /** 刚提交搜索：搜索条播一次扩散光 */
   const [surging, setSurging] = useState(false);
@@ -75,8 +97,12 @@ function SearchContent() {
     setVisibleCount(RESULT_PAGE_SIZE);
   }, [urlQuery]);
 
+  // 源名兜底：自定义源/环境源之外，还有「分享链接带进来的源」和订阅源，用 resolveSource 统一解析
   const sourceName = (key: string) =>
-    customAPIs.find((a) => a.key === key)?.name ?? envSources.find((a) => a.key === key)?.name ?? key;
+    resolveSource({ customAPIs, envSources }, key)?.name ??
+    customAPIs.find((a) => a.key === key)?.name ??
+    envSources.find((a) => a.key === key)?.name ??
+    key;
 
   const selectedSources = useMemo(() => {
     const seen = new Set<string>();
@@ -93,6 +119,8 @@ function SearchContent() {
         seenUrls.add(url);
         return true;
       })
+      // 已知还在停用期内的源直接不参与：以前会把它们再打一遍、再超时一次，
+      // 页面上同时还挂着「N 个源已暂停参与搜索」的提示，自相矛盾
       .filter((s) => !isSourceDisabled({ sourceHealth }, s.key))
       .filter((s) => !isInDisabledSubscription({ subscriptions }, s.key));
   }, [customAPIs, envSources, selectedKeys, sourceHealth, subscriptions]);
@@ -132,6 +160,16 @@ function SearchContent() {
     staleTime: 300_000,
   });
 
+  /**
+   * 「再试一次」：先抹掉这些源的停用/失败记录，再重跑一次搜索。
+   * 用户的心智模型是「这个源应该还能用」——让他能一键证明，而不是去设置里翻找。
+   */
+  const retryDisabledSources = (keys: string[]) => {
+    const { clearSourceHealth } = useAppStore.getState();
+    for (const key of keys) clearSourceHealth(key);
+    void searchQuery.refetch();
+  };
+
   const runSearch = (q: string) => {
     const query = q.trim().slice(0, 100);
     if (!query) {
@@ -147,7 +185,9 @@ function SearchContent() {
     // 搜索动画：搜索条放一圈扩散光 + 胶囊轻微模糊呼吸（.g-surging），按钮压暗（.go.busy）
     setSurging(true);
     window.setTimeout(() => setSurging(false), 700);
-    router.push(`/search?q=${encodeURIComponent(query)}`, { scroll: false });
+    // scroll: true —— 从详情/播放页回到搜索页时，用户要看到结果列表的第一行，
+    // 沿用 false 会让新搜索的结果停在视口外
+    router.push(`/search?q=${encodeURIComponent(query)}`, { scroll: true });
   };
 
   const pickHistory = (text: string) => {
@@ -189,6 +229,41 @@ function SearchContent() {
     [allGroups, bucket]
   );
   const visibleGroups = useMemo(() => groups.slice(0, visibleCount), [groups, visibleCount]);
+
+  // 本页播放器的详情（集数列表）：只依赖正在播放的那一条来源
+  const playingSource = playing
+    ? resolveSource({ customAPIs, envSources }, playing.item.sourceKey, {
+        url: playing.item.sourceUrl,
+        name: playing.item.sourceName,
+      })
+    : undefined;
+  const playingDetail = useQuery({
+    queryKey: ['detail', playing?.item.sourceKey, playing?.item.vodId, playingSource?.url],
+    queryFn: ({ signal }) => api.detail(playing!.item.vodId, playingSource!, signal),
+    enabled: Boolean(verified && playing && playingSource),
+    staleTime: 5 * 60_000,
+  });
+  const playingEpisodes = playingDetail.data?.episodes ?? [];
+  const playingIndex = Math.min(playing?.index ?? 0, Math.max(playingEpisodes.length - 1, 0));
+
+  /**
+   * 在搜索结果里直接用某个源播放：就地开播，不跳页。
+   * 旧版只能点卡片 → 弹窗（只认第一个源）→ 跳播放页，源的选择权其实不在用户手上；
+   * 而且一跳页，搜索结果、筛选状态、滚动位置全丢，想换源只能重来一遍。
+   */
+  const playSource = (item: SearchResultItem, index = 0) => {
+    addSearchHistory(item.name).catch(() => {});
+    setDetailItem(null);
+    setDetailGroup(null);
+    setPlaying({ item, index });
+    // 播放器在结果上方：滚回去，免得用户以为「点了没反应」
+    requestAnimationFrame(() => {
+      document.getElementById('g-inline-player')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  /** 离开本页播放器，回到结果列表的位置 */
+  const closePlayer = () => setPlaying(null);
 
   // 「其它相关」：本次结果里不匹配当前筛选的影片，作为横向补充（仅在筛选态出现）
   const related = useMemo(
@@ -313,35 +388,86 @@ function SearchContent() {
                 {isSearching
                   ? `已就绪 ${streamedOutcomes.length}/${selectedSources.length} 个源…`
                   : searchQuery.data
-                    ? `${allGroups.length} 部影片 · ${list.length} 条结果${failures.length ? ` · ${failures.length} 源失败` : ''}`
+                    ? `${allGroups.length} 部影片 · ${list.length} 条结果`
                     : ''}
               </span>
             </div>
 
-            {failures.length > 0 && (
-              <div className="g-panel mb-3 px-4 py-3 text-xs flex flex-wrap gap-x-3 gap-y-1">
-                <span style={{ color: 'var(--t4)' }}>{isSearching ? '以下源暂时无响应：' : '部分点播源请求失败：'}</span>
-                {failures.map((f) => (
-                  <span key={f.sourceKey} className={f.timedOut ? 'text-warning' : ''}>
-                    {f.timedOut ? '⏱' : '✗'} {sourceName(f.sourceKey)}
-                    {f.timedOut ? ' 超时' : ''}
-                  </span>
-                ))}
-              </div>
+            {/*
+             * 源状态提示（原来三整条横幅，加起来比结果区还高）：
+             * 合并成一条可展开的细行 —— 默认只给一行摘要，点「详情」才看到逐个源名与处理方式。
+             */}
+            {(failures.length > 0 || disabledSources.length > 0 || offSubscriptionSources.length > 0) && (
+              <SourceStatusStrip
+                searching={isSearching}
+                failures={failures}
+                disabled={disabledSources}
+                offSubscription={offSubscriptionSources}
+                nameOf={sourceName}
+                onRetryDisabled={retryDisabledSources}
+              />
             )}
 
-            {disabledSources.length > 0 && (
-              <div className="g-panel mb-3 px-4 py-3 text-xs" style={{ color: 'var(--t4)' }}>
-                {disabledSources.length} 个源因连续超时/失败已暂停参与搜索（临时停用的到期自动恢复，长期停用的需在设置中手动恢复）：
-                {disabledSources.map((key) => sourceName(key)).join('、')}
-              </div>
-            )}
-
-            {offSubscriptionSources.length > 0 && (
-              <div className="g-panel mb-3 px-4 py-3 text-xs" style={{ color: 'var(--t4)' }}>
-                {offSubscriptionSources.length} 个源所属的订阅已停用，未参与本次搜索（在设置 → 数据源订阅中可重新启用）：
-                {offSubscriptionSources.map((key) => sourceName(key)).join('、')}
-              </div>
+            {playing && playingSource && (
+              <section id="g-inline-player" className="g-inline-player" aria-label="正在播放">
+                <div className="g-inline-player-stage">
+                  {playingEpisodes.length > 0 || playingDetail.isLoading ? (
+                    playingEpisodes.length > 0 ? (
+                      <PlayerShell
+                        url={playingEpisodes[playingIndex]}
+                        title={playing.item.name}
+                        adFilter={adFilter}
+                        autoplayNext={autoplayNext}
+                        episodeKey={`${playing.item.sourceKey}:${playing.item.vodId}:${playingIndex}`}
+                        nextUrl={playingIndex < playingEpisodes.length - 1 ? playingEpisodes[playingIndex + 1] : undefined}
+                        nextEpisodeKey={
+                          playingIndex < playingEpisodes.length - 1
+                            ? `${playing.item.sourceKey}:${playing.item.vodId}:${playingIndex + 1}`
+                            : undefined
+                        }
+                        onEnded={() => {
+                          if (autoplayNext && playingIndex < playingEpisodes.length - 1) {
+                            setPlaying((p) => (p ? { ...p, index: playingIndex + 1 } : p));
+                          }
+                        }}
+                        onRequestSwitchSource={() => setDetailGroup(groups.find((g) => g.items.some((x) => x === playing.item)) ?? null)}
+                      />
+                    ) : (
+                      <div className="g-inline-player-boot">正在获取剧集…</div>
+                    )
+                  ) : playingDetail.isError ? (
+                    <div className="g-inline-player-boot">
+                      <p>这个源没有可用的播放地址</p>
+                      <button className="g-act" onClick={closePlayer}>换一个源</button>
+                    </div>
+                  ) : (
+                    <div className="g-inline-player-boot">无可用播放地址</div>
+                  )}
+                </div>
+                <div className="g-inline-player-bar">
+                  <b title={playing.item.name}>{playing.item.name}</b>
+                  <span className="g-inline-player-src">{playing.item.sourceName || playing.item.sourceKey}</span>
+                  {playingEpisodes.length > 1 && (
+                    <span className="g-inline-player-ep">
+                      第 {playingIndex + 1}/{playingEpisodes.length} 集
+                    </span>
+                  )}
+                  <span className="g-spacer" />
+                  <Link
+                    className="g-act"
+                    href={buildWatchUrl({
+                      sourceKey: playing.item.sourceKey,
+                      vodId: playing.item.vodId,
+                      index: playingIndex,
+                      title: playing.item.name,
+                      sourceUrl: playing.item.sourceUrl,
+                    })}
+                  >
+                    打开播放页
+                  </Link>
+                  <button className="g-act" onClick={closePlayer}>关闭</button>
+                </div>
+              </section>
             )}
 
             {selectedSources.length === 0 ? (
@@ -350,7 +476,16 @@ function SearchContent() {
               <>
                 <div className="g-rows">
                   {visibleGroups.map((group) => (
-                    <AggregatedCard key={group.key} group={group} onOpen={(item) => setDetailItem(item)} />
+                    <AggregatedCard
+                      key={group.key}
+                      group={group}
+                      onOpen={(item, g) => {
+                        setDetailGroup(g);
+                        setDetailItem(item);
+                      }}
+                      onPlaySource={playSource}
+                      playingKey={playing ? `${playing.item.sourceKey}_${playing.item.vodId}` : undefined}
+                    />
                   ))}
                 </div>
                 {groups.length > visibleCount && (
@@ -375,11 +510,18 @@ function SearchContent() {
             {related.length > 0 && (
               <>
                 <h2 className="g-h2">
-                  其它相关 <small>related</small>
+                  其它分类里还有 <small>related</small>
                 </h2>
                 <div className="g-grid">
                   {related.map((g) => (
-                    <VideoCard key={g.key} item={g.items[0]} onClick={() => setDetailItem(g.items[0])} />
+                    <VideoCard
+                      key={g.key}
+                      item={g.items[0]}
+                      onClick={() => {
+                        setDetailGroup(g);
+                        setDetailItem(g.items[0]);
+                      }}
+                    />
                   ))}
                 </div>
               </>
@@ -393,7 +535,85 @@ function SearchContent() {
       </main>
 
       <SiteFooter />
-      <DetailModal item={detailItem} onClose={() => setDetailItem(null)} />
+      <DetailModal
+        item={detailItem}
+        group={detailGroup}
+        onSelectItem={(next) => setDetailItem(next)}
+        onPlay={playSource}
+        onClose={() => {
+          setDetailItem(null);
+          setDetailGroup(null);
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * 采集源状态条：把「本次失败 / 已停用 / 订阅停用」三类信息压进一行。
+ * 默认只给计数摘要（用户不关心细节时不该占掉半屏），展开后才列出源名与各自的恢复方式。
+ */
+function SourceStatusStrip({
+  searching,
+  failures,
+  disabled,
+  offSubscription,
+  nameOf,
+  onRetryDisabled,
+}: {
+  searching: boolean;
+  failures: { sourceKey: string; error?: string; timedOut?: boolean }[];
+  disabled: string[];
+  offSubscription: string[];
+  nameOf: (key: string) => string;
+  /** 「再试一次」：清掉这些源的停用记录并重新搜索 */
+  onRetryDisabled: (keys: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const bad = failures.length + disabled.length + offSubscription.length;
+
+  return (
+    <div className="g-srcstatus">
+      <button className="g-srcstatus-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <i className={cn('g-dot', bad > 0 ? 'warn' : 'ok')} />
+        <span>
+          {searching && failures.length > 0 ? `${failures.length} 个源暂无响应` : ''}
+          {searching && failures.length > 0 && (disabled.length > 0 || offSubscription.length > 0) ? ' · ' : ''}
+          {disabled.length > 0 ? `${disabled.length} 个源已停用` : ''}
+          {disabled.length > 0 && offSubscription.length > 0 ? ' · ' : ''}
+          {offSubscription.length > 0 ? `${offSubscription.length} 个源所属订阅已关闭` : ''}
+          {!searching && failures.length > 0 ? `${failures.length} 个源本次请求失败` : ''}
+        </span>
+        <em>{open ? '收起' : '详情'}</em>
+      </button>
+      {open && (
+        <div className="g-srcstatus-body">
+          {failures.length > 0 && (
+            <p>
+              <b>{searching ? '暂无响应' : '本次失败'}</b>
+              {failures.map((f) => `${nameOf(f.sourceKey)}${f.timedOut ? '（超时）' : ''}`).join('、')}
+              <s>连续失败会自动停用，不影响其它源</s>
+            </p>
+          )}
+          {disabled.length > 0 && (
+            <p>
+              <b>已自动停用</b>
+              {disabled.map(nameOf).join('、')}
+              <s>连续失败达到阈值才会停用，多半是刚才网络抖动；确认源没问题就再试一次</s>
+              <button className="g-act" onClick={() => onRetryDisabled(disabled)} disabled={searching}>
+                {searching ? '搜索中…' : '再试一次'}
+              </button>
+            </p>
+          )}
+          {offSubscription.length > 0 && (
+            <p>
+              <b>订阅已关闭</b>
+              {offSubscription.map(nameOf).join('、')}
+              <s>在 设置 → 数据源订阅 里可重新启用</s>
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

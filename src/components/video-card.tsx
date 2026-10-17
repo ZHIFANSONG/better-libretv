@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SearchResultItem } from '@/lib/types';
 import { useAppStore } from '@/lib/store';
+import { latencyLevel, latencyText } from '@/lib/source-switch';
 import { cn } from '@/lib/utils';
 import { SmartImage } from './smart-image';
 
@@ -68,12 +69,22 @@ export function aggregateResults(list: SearchResultItem[]): AggregatedGroup[] {
 export function AggregatedCard({
   group,
   onOpen,
+  onPlaySource,
+  playingKey,
 }: {
   group: AggregatedGroup;
-  onOpen: (item: SearchResultItem) => void;
+  /** 点卡片本体：打开详情弹窗（可以看到简介、分集、全部来源） */
+  onOpen: (item: SearchResultItem, group: AggregatedGroup) => void;
+  /** 点某一个来源胶囊：就在本页播放器里放这个源的资源（不跳走，搜索结果不丢） */
+  onPlaySource?: (item: SearchResultItem) => void;
+  /** 正在本页播放的那条来源，用来在胶囊上打「播放中」标记 */
+  playingKey?: string;
 }) {
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const customImageProxy = useAppStore((s) => s.customImageProxy);
+  // 每个源的本次搜索耗时（来自搜索流里的 outcome）：命中就显示延迟档位圆点，
+  // 让用户在点下去之前就知道该挑哪个源 —— 不必先点开播、等转圈再自己试。
+  const sourceHealth = useAppStore((s) => s.sourceHealth);
   const [imgFailed, setImgFailed] = useState(false);
   const showImg = !!group.pic && !imgFailed;
   const adult = useMemo(() => group.items.some((i) => i.isAdult), [group.items]);
@@ -83,7 +94,7 @@ export function AggregatedCard({
   );
   const count = group.items.length;
 
-  const activate = () => onOpen(group.items[0]);
+  const activate = () => onOpen(group.items[0], group);
 
   return (
     <div
@@ -132,6 +143,46 @@ export function AggregatedCard({
           </div>
         )}
         <p>{group.remarks || "暂无介绍"}</p>
+        {/*
+         * 来源行：原来卡上只写「4 个来源」几个字，点进去也只有一个源能播，
+         * 用户根本选不了用哪个 API 的资源 —— 现在每个源都是一颗直接开播的胶囊。
+         * 单源时也显示，让「哪个站出的片子」这件事一眼可见。
+         */}
+        <div className="g-rcard-src" onClick={(e) => e.stopPropagation()}>
+          {group.items.slice(0, 5).map((it) => {
+            const key = `${it.sourceKey}_${it.vodId}`;
+            const h = sourceHealth[it.sourceKey];
+            const lv = latencyLevel({ ok: h?.ok, ms: h?.ms });
+            return (
+              <button
+                key={key}
+                className={`g-rcard-srcrow${playingKey === key ? ' on' : ''}`}
+                title={`用「${it.sourceName || it.sourceKey}」播放${it.remarks ? ` · ${it.remarks}` : ""}${h?.ms != null ? ` · 搜索耗时 ${h.ms}ms` : ""}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onPlaySource) onPlaySource(it);
+                  else onOpen(it, group);
+                }}
+              >
+                <i className={cn('g-dot', lv)} />
+                {it.sourceName || it.sourceKey}
+                {h?.ok && h.ms != null && <em>{latencyText({ ok: h.ok, ms: h.ms })}</em>}
+              </button>
+            );
+          })}
+          {count > 5 && (
+            <button
+              className="g-rcard-srcmore"
+              title="查看全部来源"
+              onClick={(e) => {
+                e.stopPropagation();
+                activate();
+              }}
+            >
+              +{count - 5}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

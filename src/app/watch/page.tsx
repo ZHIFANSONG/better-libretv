@@ -17,6 +17,8 @@ const PlayerShell = dynamic(() => import('@/components/player-shell').then((m) =
 });
 import { EmptyState, LoadingState, Spinner } from '@/components/states';
 import { SwitchSourceModal } from '@/components/switch-source';
+import type { SourceCandidate } from '@/lib/source-switch';
+import { SourceSwitchCard } from '@/components/source-switch-card';
 import { enqueueDownload } from '@/components/download-manager';
 import { Icon } from '@/components/icon';
 import { Header } from '@/components/header';
@@ -59,7 +61,10 @@ function WatchContent() {
   const indexParam = parseInt(searchParams.get('index') || '0', 10) || 0;
 
   const [reversed, setReversed] = useState(false);
-  const [switchOpen, setSwitchOpen] = useState(false);
+  // 换源弹窗：null = 关闭；数组 = 打开，并带上换源卡已经测到的候选（省掉一轮重复搜索）
+  const [switchOpen, setSwitchOpen] = useState<SourceCandidate[] | null>(null);
+  // 播放中致命错误的次数：每次 +1 触发侧栏换源卡自动测速
+  const [failedSignal, setFailedSignal] = useState(0);
 
   const source = resolveSource(store, sourceKey, {
     url: searchParams.get('sourceUrl') || undefined,
@@ -188,17 +193,6 @@ function WatchContent() {
     // 这里先提示的话，用户随后取消保存位置会出现「已加入→已取消」的矛盾
   }, [currentUrl, videoTitle, episodes.length, currentIndex]);
 
-  // 侧栏采集源列表：已勾选的源名；当前源来自 URL（不在勾选列表）时补进首位
-  const sourceNames = useMemo(() => {
-    const names = store.selectedKeys
-      .map((k) => resolveSource(store, k)?.name)
-      .filter((n): n is string => Boolean(n));
-    if (source && !names.includes(source.name)) names.unshift(source.name);
-    // 预置源与订阅源可能同名（地址也相同、只是 key 不同）：去重后再渲染，
-    // 否则 chip 会重复一轮并触发 React 重复 key 警告
-    return [...new Set(names)];
-  }, [store, source]);
-
   if (!verified) {
     return (
       <div className="g-shell min-h-screen flex flex-col">
@@ -235,13 +229,13 @@ function WatchContent() {
         {/* 播放页次级条：返回 + 当前源，动作放右侧（提案稿的浮动胶囊形态） */}
         <div className="g-subbar g-glass" glass="tinted" glass-blur="10">
           <BackButton />
-          <span className="g-src-name">
+          <Link href={`/search?q=${encodeURIComponent(videoTitle)}`} className="g-src-name" title="用这个片名去搜索其它源">
             {source.name}
             {episodes.length > 0 && ` · 第 ${currentIndex + 1}/${episodes.length} 集`}
-          </span>
+          </Link>
           <span className="g-spacer" />
-          <button className="g-act" onClick={handleDownload}>下载本集</button>
-          <button className="g-act" onClick={() => setSwitchOpen(true)}>切换资源</button>
+          {/* 「切换资源」不再放在这里：右侧换源卡已经把每个源都列出来了，重复入口只会让人多点一次 */}
+          <button className="g-act" onClick={handleDownload} disabled={!currentUrl}>下载本集</button>
         </div>
 
         <div className="g-layout">
@@ -261,6 +255,7 @@ function WatchContent() {
                   onTimeUpdate={handleProgress}
                   onPause={handleProgress}
                   onEnded={handleEnded}
+                  onRequestSwitchSource={() => setFailedSignal((n) => n + 1)}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
@@ -315,34 +310,21 @@ function WatchContent() {
                   />
                   自动连播
                 </label>
-                <button className="g-act" onClick={handleDownload}>下载本集</button>
               </div>
             </div>
           </div>
 
-          {/* 侧栏：采集源 / 选集 / 快捷键 */}
+          {/* 侧栏：换源 / 选集（快捷键说明改由播放器 first-ready 提示给出，不再常驻一卡） */}
           <aside className="g-side">
-            <div className="g-card g-panel" glass="frosted" glass-blur="16">
-              <h4>
-                采集源 <em>sources</em>
-              </h4>
-              {sourceNames.length > 0 ? (
-                <div className="g-src">
-                  {sourceNames.map((n) => (
-                    <span key={n} className={cn(n === source.name && 'on')}>{n}</span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-faint">当前源来自分享链接，未加入已启用列表</p>
-              )}
-              <button
-                className="g-act"
-                style={{ width: '100%', justifyContent: 'center' }}
-                onClick={() => setSwitchOpen(true)}
-              >
-                搜索其它采集源
-              </button>
-            </div>
+            <SourceSwitchCard
+              title={videoTitle}
+              currentSourceKey={sourceKey}
+              currentVodId={vodId}
+              currentIndex={currentIndex}
+              failedSignal={failedSignal}
+              sourceUrl={source.url}
+              onMore={(candidates) => setSwitchOpen(candidates)}
+            />
 
             <div className="g-card g-panel" glass="frosted" glass-blur="16">
               <h4>
@@ -383,21 +365,6 @@ function WatchContent() {
               )}
             </div>
 
-            <div className="g-card g-panel" glass="frosted" glass-blur="16">
-              <h4>
-                快捷键 <em>keys</em>
-              </h4>
-              <div className="g-shortcut">
-                <kbd>空格</kbd> 播放/暂停 · <kbd>←</kbd>
-                <kbd>→</kbd> 快退/快进 5s
-                <br />
-                <kbd>↑</kbd>
-                <kbd>↓</kbd> 音量 · <kbd>F</kbd> 全屏
-                <br />
-                <kbd>Alt</kbd>+<kbd>←</kbd>
-                <kbd>→</kbd> 切换集数
-              </div>
-            </div>
           </aside>
         </div>
       </main>
@@ -410,7 +377,8 @@ function WatchContent() {
           currentSourceKey={sourceKey}
           currentVodId={vodId}
           currentIndex={currentIndex}
-          onClose={() => setSwitchOpen(false)}
+          initialCandidates={switchOpen}
+          onClose={() => setSwitchOpen(null)}
         />
       )}
     </div>

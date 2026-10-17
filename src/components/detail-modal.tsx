@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/client-api';
 import type { SearchResultItem, VideoDetail } from '@/lib/types';
+import { isSourceDisabled } from '@/lib/store';
+import { latencyLevel } from '@/lib/source-switch';
 import { buildWatchUrl } from '@/lib/utils';
 import { SmartImage } from './smart-image';
 import { useAppStore, resolveSource } from '@/lib/store';
@@ -16,11 +18,46 @@ import { useFocusTrap } from './use-focus-trap';
 import { Icon } from './icon';
 
 /**
- * 详情弹窗：剧集列表 + 排序 + 复制链接。
+ * 详情弹窗：来源切换 + 剧集列表 + 排序 + 复制链接。
  * 剧集点击 → /watch 路由（URL 携带定位参数，可分享、可后退）。
+ *
+ * 传了 group 时顶部会列出这部片子的**全部来源**：同一个片名往往在好几个源里都有，
+ * 但旧版弹窗只认传入的那一条（items[0]），其余源等于被吞掉，用户只能碰运气。
  */
 
-export function DetailModal({ item, onClose }: { item: SearchResultItem | null; onClose: () => void }) {
+/**
+ * 把接口里的 HTML 简介变成纯文本：去掉 <p>/<br>/<img> 之类的标签、还原常见实体。
+ * 不做 dangerouslySetInnerHTML —— 简介来自第三方源，直接注入等于把 XSS 交给源站。
+ */
+function plainText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+export function DetailModal({
+  item,
+  group,
+  onSelectItem,
+  onPlay,
+  onClose,
+}: {
+  item: SearchResultItem | null;
+  /** 同名聚合组（含全部来源）；不传时退化为单源弹窗 */
+  group?: { items: SearchResultItem[] } | null;
+  /** 切换来源：父组件更新 item 后弹窗自动重新取详情 */
+  onSelectItem?: (next: SearchResultItem) => void;
+  /** 就地播放：传了它时，来源胶囊直接在当前页面播放器里开播，不再跳 /watch */
+  onPlay?: (item: SearchResultItem, startIndex: number) => void;
+  onClose: () => void;
+}) {
   const store = useAppStore();
   const router = useRouter();
   const { toast } = useToast();
@@ -91,8 +128,18 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
 
   const episodes = detail ? (reversed ? [...detail.episodes].reverse() : detail.episodes) : [];
   const info = detail?.videoInfo;
+  const groupItems = group?.items?.length ? group.items : [item];
+  // 同一源可能同时被预置源与订阅源提供：按 sourceKey 去重，避免出现两个一模一样的胶囊
+  const sourceChips = groupItems.filter(
+    (it, i, arr) => arr.findIndex((x) => x.sourceKey === it.sourceKey) === i
+  );
 
   const play = (index: number) => {
+    // 就地播放：不跳页，结果和弹窗状态都留着
+    if (onPlay) {
+      onPlay(item, index);
+      return;
+    }
     if (!detail || !detail.episodes[index]) return;
     addSearchHistory(item.name).catch(() => {});
     router.push(
@@ -132,7 +179,7 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="g-panel rounded-xl w-full max-w-4xl max-h-[92vh] overflow-y-auto scrollbar-thin animate-slide-up outline-none"
+        className="g-panel g-detail-modal rounded-xl w-full max-w-4xl max-h-[92vh] overflow-y-auto scrollbar-thin animate-slide-up outline-none"
         glass="frosted"
         glass-blur="14"
         overlay=""
@@ -143,7 +190,10 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
         <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-line">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-content break-words">{item.name}</h2>
-            <span className="text-sm text-faint">{item.sourceName}</span>
+            <span className="text-sm text-faint">
+              {item.sourceName}
+              {sourceChips.length > 1 ? ` · 共 ${sourceChips.length} 个来源` : ''}
+            </span>
           </div>
           <button
             className="p-1.5 rounded-md text-muted hover:text-content hover:bg-hover shrink-0"
@@ -161,8 +211,39 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
 
           {!loading && error && <ErrorState message={error || '获取失败'} />}
 
-          {!loading && !error && detail && (
+          {!loading && detail && (
             <>
+              {/* 来源胶囊不依赖详情接口：详情挂了照样能换源，所以提到 loading/error 之外 */}
+              {sourceChips.length > 1 && (
+                <div className="g-srcrow-wrap">
+                  <span className="g-srcrow-label">选择来源</span>
+                  {sourceChips.map((it) => {
+                    const active = it.sourceKey === item.sourceKey;
+                    const off = isSourceDisabled(store, it.sourceKey);
+                    // 同一个源在本页被换过之后，这里补一个耗时圆点：选源时就有依据，
+                    // 而不是把每个源都点一遍再等播不出来
+                    const h = store.sourceHealth?.[it.sourceKey];
+                    return (
+                      <button
+                        key={it.sourceKey}
+                        className={cn('g-srcchip', active && 'on', off && 'off')}
+                        disabled={active}
+                        title={
+                          off
+                            ? `${it.sourceName}（此前连续失败已停用）`
+                            : `换成「${it.sourceName}」的资源${h?.ms != null ? ` · 上次搜索 ${h.ms}ms` : ''}`
+                        }
+                        onClick={() => onSelectItem?.(it)}
+                      >
+                        {h && <i className={cn('g-dot', latencyLevel({ ok: h.ok, ms: h.ms }))} />}
+                        {it.sourceName || it.sourceKey}
+                        {it.remarks ? <em>{it.remarks}</em> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row gap-4 mb-4">
                 {item?.pic && !posterFailed && (
                   <SmartImage
@@ -186,8 +267,9 @@ export function DetailModal({ item, onClose }: { item: SearchResultItem | null; 
                       ))}
                     </div>
                   )}
+                  {/* 很多源的简介是 HTML（<p>、<br>、&nbsp;），直接渲染会把标签当正文显示出来 */}
                   {info?.desc && (
-                    <p className="text-sm text-muted leading-relaxed line-clamp-4">{info.desc}</p>
+                    <p className="text-sm text-muted leading-relaxed line-clamp-4">{plainText(info.desc)}</p>
                   )}
                 </div>
               </div>

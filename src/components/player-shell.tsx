@@ -289,7 +289,9 @@ export function PlayerShell({
       mutex: true,
       backdrop: true,
       playsInline: true,
-      airplay: true,
+      // airplay 关掉：Artplayer 只在 Safari 的 WebKitPlaybackTargetAvailabilityEvent 存在时才注册这个按钮，
+      // 桌面 Edge/Chrome 上它照样渲染，点了却只弹一句「AirPlay Not Available」——纯噪音
+      airplay: false,
       hotkey: false,
       theme: '#2563eb',
       lang: navigator.language.toLowerCase().startsWith('zh') ? 'zh-cn' : 'en',
@@ -506,21 +508,30 @@ export function PlayerShell({
         />
       )}
       {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80">
           <p className="text-danger text-sm">{error}</p>
-          <button className="btn-ghost text-xs" onClick={() => location.reload()}>
-            重新加载
-          </button>
+          <div className="flex items-center gap-2">
+            {/* 只给「重新加载」等于让用户自己满页面找换源入口；这里直接引导到右侧换源卡 */}
+            {onRequestSwitchSource && (
+              <button
+                className="btn-primary text-xs"
+                onClick={() => {
+                  setError('');
+                  onRequestSwitchSource('播放失败');
+                }}
+              >
+                换个源
+              </button>
+            )}
+            <button className="btn-ghost text-xs" onClick={() => location.reload()}>
+              重新加载
+            </button>
+          </div>
         </div>
       )}
       {hint && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-sm px-3 py-1.5 rounded-full pointer-events-none animate-fade-in">
           {hint}
-        </div>
-      )}
-      {autoplayNext && !error && (
-        <div className="absolute bottom-16 right-3 text-[10px] text-muted bg-black/50 px-2 py-0.5 rounded pointer-events-none">
-          自动连播已开启
         </div>
       )}
     </div>
