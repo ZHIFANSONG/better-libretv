@@ -79,7 +79,7 @@ export function PlaySettingsDrawer() {
         {selectedKeys.length === 0 && <span>未勾选</span>}
       </div>
       {sick > 0 && <p className="g-note">{sick} 个源近期无响应，可到「我的」里查看</p>}
-      <p className="g-note">推荐来源已移到「设置 → 偏好设置 → 首页与内容」，首页默认豆瓣热门。</p>
+      <p className="g-note">换推荐来源请到「设置 · 偏好设置 · 首页与内容」</p>
     </aside>
   );
 }
