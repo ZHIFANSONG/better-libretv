@@ -18,14 +18,6 @@ import { useToast } from '@/components/toast';
 import { EmptyState } from '@/components/states';
 import { Icon } from '@/components/icon';
 import { SiteFooter } from '@/components/site-footer';
-import dynamic from 'next/dynamic';
-import { useAuth } from '@/components/auth';
-
-// 播放器（artplayer + hls.js）按需加载：不点「播放」就不下载，搜索页首屏 JS 不受影响
-const PlayerShell = dynamic(() => import('@/components/player-shell').then((m) => m.PlayerShell), {
-  ssr: false,
-  loading: () => <div className="g-inline-player-boot">播放器加载中…</div>,
-});
 
 /**
  * 搜索页（proposal 版）：高斯模糊搜索条 + 带计数的分类胶囊 + g-rcard 结果网格（横屏 3~4 列）。
@@ -66,21 +58,12 @@ function SearchContent() {
   const yellowFilter = useAppStore((s) => s.yellowFilter);
   const sourceHealth = useAppStore((s) => s.sourceHealth);
   const subscriptions = useAppStore((s) => s.subscriptions);
-  const autoplayNext = useAppStore((s) => s.autoplayNext);
-  const adFilter = useAppStore((s) => s.adFilter);
-  const { verified } = useAuth();
 
   const [input, setInput] = useState(urlQuery);
   const [bucket, setBucket] = useState<Bucket>('全部');
   const [detailItem, setDetailItem] = useState<SearchResultItem | null>(null);
   // 与 detailItem 配套的聚合组：弹窗里要列出这部片子的全部来源，光给一条 item 不够
   const [detailGroup, setDetailGroup] = useState<AggregatedGroup | null>(null);
-  /**
-   * 本页播放器：在搜索结果里点某个源的资源，就在这一页直接播，不再跳到 /watch。
-   * 旧做法是跳走 → 想换别的源得返回 → 重新搜索 → 列表滚动位置全丢，
-   * 「搜完选不了用哪个源的资源」一半是这个问题造成的。
-   */
-  const [playing, setPlaying] = useState<{ item: SearchResultItem; index: number } | null>(null);
 
   const [streamedOutcomes, setStreamedOutcomes] = useState<SourceSearchOutcome[]>([]);
   /** 刚提交搜索：搜索条播一次扩散光 */
@@ -230,40 +213,26 @@ function SearchContent() {
   );
   const visibleGroups = useMemo(() => groups.slice(0, visibleCount), [groups, visibleCount]);
 
-  // 本页播放器的详情（集数列表）：只依赖正在播放的那一条来源
-  const playingSource = playing
-    ? resolveSource({ customAPIs, envSources }, playing.item.sourceKey, {
-        url: playing.item.sourceUrl,
-        name: playing.item.sourceName,
-      })
-    : undefined;
-  const playingDetail = useQuery({
-    queryKey: ['detail', playing?.item.sourceKey, playing?.item.vodId, playingSource?.url],
-    queryFn: ({ signal }) => api.detail(playing!.item.vodId, playingSource!, signal),
-    enabled: Boolean(verified && playing && playingSource),
-    staleTime: 5 * 60_000,
-  });
-  const playingEpisodes = playingDetail.data?.episodes ?? [];
-  const playingIndex = Math.min(playing?.index ?? 0, Math.max(playingEpisodes.length - 1, 0));
-
   /**
-   * 在搜索结果里直接用某个源播放：就地开播，不跳页。
-   * 旧版只能点卡片 → 弹窗（只认第一个源）→ 跳播放页，源的选择权其实不在用户手上；
-   * 而且一跳页，搜索结果、筛选状态、滚动位置全丢，想换源只能重来一遍。
+   * 点某个源的资源 → 直接进 /watch 播放页。
+   * 早前版本在结果上方塞了半屏的就地播放器，结果一播就看不到列表、换源还得往上翻；
+   * 播放页本身已经有换源卡和选集，入口统一到那里更顺。
+   * 离开前记下滚动位置，返回时用 router.back() 能原样回到这批结果。
    */
   const playSource = (item: SearchResultItem, index = 0) => {
     addSearchHistory(item.name).catch(() => {});
     setDetailItem(null);
     setDetailGroup(null);
-    setPlaying({ item, index });
-    // 播放器在结果上方：滚回去，免得用户以为「点了没反应」
-    requestAnimationFrame(() => {
-      document.getElementById('g-inline-player')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
+    router.push(
+      buildWatchUrl({
+        sourceKey: item.sourceKey,
+        vodId: item.vodId,
+        index,
+        title: item.name,
+        sourceUrl: item.sourceUrl,
+      })
+    );
   };
-
-  /** 离开本页播放器，回到结果列表的位置 */
-  const closePlayer = () => setPlaying(null);
 
   // 「其它相关」：本次结果里不匹配当前筛选的影片，作为横向补充（仅在筛选态出现）
   const related = useMemo(
@@ -408,68 +377,6 @@ function SearchContent() {
               />
             )}
 
-            {playing && playingSource && (
-              <section id="g-inline-player" className="g-inline-player" aria-label="正在播放">
-                <div className="g-inline-player-stage">
-                  {playingEpisodes.length > 0 || playingDetail.isLoading ? (
-                    playingEpisodes.length > 0 ? (
-                      <PlayerShell
-                        url={playingEpisodes[playingIndex]}
-                        title={playing.item.name}
-                        adFilter={adFilter}
-                        autoplayNext={autoplayNext}
-                        episodeKey={`${playing.item.sourceKey}:${playing.item.vodId}:${playingIndex}`}
-                        nextUrl={playingIndex < playingEpisodes.length - 1 ? playingEpisodes[playingIndex + 1] : undefined}
-                        nextEpisodeKey={
-                          playingIndex < playingEpisodes.length - 1
-                            ? `${playing.item.sourceKey}:${playing.item.vodId}:${playingIndex + 1}`
-                            : undefined
-                        }
-                        onEnded={() => {
-                          if (autoplayNext && playingIndex < playingEpisodes.length - 1) {
-                            setPlaying((p) => (p ? { ...p, index: playingIndex + 1 } : p));
-                          }
-                        }}
-                        onRequestSwitchSource={() => setDetailGroup(groups.find((g) => g.items.some((x) => x === playing.item)) ?? null)}
-                      />
-                    ) : (
-                      <div className="g-inline-player-boot">正在获取剧集…</div>
-                    )
-                  ) : playingDetail.isError ? (
-                    <div className="g-inline-player-boot">
-                      <p>这个源没有可用的播放地址</p>
-                      <button className="g-act" onClick={closePlayer}>换一个源</button>
-                    </div>
-                  ) : (
-                    <div className="g-inline-player-boot">无可用播放地址</div>
-                  )}
-                </div>
-                <div className="g-inline-player-bar">
-                  <b title={playing.item.name}>{playing.item.name}</b>
-                  <span className="g-inline-player-src">{playing.item.sourceName || playing.item.sourceKey}</span>
-                  {playingEpisodes.length > 1 && (
-                    <span className="g-inline-player-ep">
-                      第 {playingIndex + 1}/{playingEpisodes.length} 集
-                    </span>
-                  )}
-                  <span className="g-spacer" />
-                  <Link
-                    className="g-act"
-                    href={buildWatchUrl({
-                      sourceKey: playing.item.sourceKey,
-                      vodId: playing.item.vodId,
-                      index: playingIndex,
-                      title: playing.item.name,
-                      sourceUrl: playing.item.sourceUrl,
-                    })}
-                  >
-                    打开播放页
-                  </Link>
-                  <button className="g-act" onClick={closePlayer}>关闭</button>
-                </div>
-              </section>
-            )}
-
             {selectedSources.length === 0 ? (
               <NoSourceGuide hasSources={customAPIs.length > 0 || envSources.length > 0} />
             ) : groups.length > 0 ? (
@@ -484,7 +391,6 @@ function SearchContent() {
                         setDetailItem(item);
                       }}
                       onPlaySource={playSource}
-                      playingKey={playing ? `${playing.item.sourceKey}_${playing.item.vodId}` : undefined}
                     />
                   ))}
                 </div>

@@ -51,8 +51,26 @@ const isAppleTouchDevice = (): boolean => {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent;
   if (/iPhone|iPad|iPod/i.test(ua)) return true;
-  const macLike = /\bMacintosh\b/.test(ua);
-  return (macLike && navigator.maxTouchPoints > 1) || Artplayer.utils.isSafari;
+  // iPadOS 桌面 UA：Macintosh + 多点触控
+  if (/\bMacintosh\b/.test(ua) && navigator.maxTouchPoints > 1) return true;
+  // 原来这里还并了 Artplayer.utils.isSafari 兜底，桌面 Mac 的 Safari 会被误判：
+  // 桌面 Safari 有 Fullscreen API 全屏，却硬走 webkitEnterFullscreen，
+  // 结果是点了全屏没反应（或者在 Mac 上被浏览器拦掉）。现在只认真正的 Apple 触屏设备。
+  return false;
+};
+
+/**
+ * 只有「真的能进原生全屏」时才把全屏改道到系统播放器。
+ * 桌面 Safari / Edge / Chrome 的 webkitEnterFullscreen 存在但会把播放拉走或直接无效，
+ * 必须留在 Artplayer 自带的元素全屏上。
+ */
+const canUseNativeFullscreen = (video?: HTMLVideoElement): boolean => {
+  if (!video) return false;
+  const v = video as HTMLVideoElement & {
+    webkitEnterFullscreen?: () => void;
+    webkitEnterFullScreen?: () => void;
+  };
+  return typeof v.webkitEnterFullscreen === 'function' || typeof v.webkitEnterFullScreen === 'function';
 };
 
 /**
@@ -360,15 +378,27 @@ export function PlayerShell({
         fullscreen: boolean;
         fullscreenWeb: boolean;
       };
+      // 记下被覆盖前的原始存取器（那才是 Fullscreen API 的正路），
+      // 某些设备其实没有原生全屏能力，这时必须落回去，否则就是「点了没反应」。
+      const original = Object.getOwnPropertyDescriptor(art, 'fullscreen');
+
       Object.defineProperty(player, 'fullscreen', {
         configurable: true,
         enumerable: true,
         get: () => {
           const v = art.video as HTMLVideoElement & { webkitDisplayingFullscreen?: boolean };
+          if (!canUseNativeFullscreen(art.video)) {
+            return original?.get ? !!original.get.call(player) : !!v?.webkitDisplayingFullscreen;
+          }
           return !!v?.webkitDisplayingFullscreen;
         },
         set: (on: boolean) => {
           const v = art.video as HTMLVideoElement;
+          // 没有 webkitEnterFullscreen 的设备（部分 iPadOS 浏览器外壳 / 桌面 Safari）走回原生 Fullscreen API
+          if (!canUseNativeFullscreen(v)) {
+            original?.set?.call(player, on);
+            return;
+          }
           if (on) {
             // 网页全屏状态先退出，否则原生全屏退出后会落回「网页全屏」而不是正常页面
             if (player.fullscreenWeb) player.fullscreenWeb = false;

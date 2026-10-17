@@ -1582,6 +1582,85 @@
 }
 
 
+/* ===== 播放页：爱奇艺式排布（v14）===== */
+/*
+ * 结构：页头 → [左：播放器 / 片名+集数 / 信息卡] [右：换源 / 选集] → 页脚。
+ * 原来的「返回 + 源名」次级条已删除（集数进片名行，源名进信息卡）。
+ * 播放器尺寸只由左列宽度决定：不吃视口高度，任何比例下都不会缩成中间一小块。
+ */
+.g-watch {
+  padding-top: 76px;
+}
+.g-watch .g-layout {
+  margin-top: 0;
+}
+/* 播放器下方片名行：大标题 + 集数胶囊 */
+.g-watch-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 16px 0 0;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--t1);
+}
+.g-watch-title s {
+  text-decoration: none;
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--bd);
+  color: var(--t3);
+}
+:root:not(.dark) .g-watch-title s {
+  background: rgba(0, 0, 0, 0.04);
+}
+/* 信息卡顶部的标签行（全 76 集 / 年份）——标题已上移，这里只留胶囊 */
+.g-info .g-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.g-info .g-tags:empty {
+  display: none;
+}
+.g-info .g-tags s {
+  text-decoration: none;
+  font-size: 10.5px;
+  font-family: var(--mono);
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  background: rgba(77, 107, 254, 0.24);
+  border: 1px solid rgba(120, 150, 255, 0.42);
+  color: #cfe0ff;
+}
+:root:not(.dark) .g-info .g-tags s {
+  color: var(--brand-deep);
+  background: rgba(77, 107, 254, 0.12);
+}
+.g-info .g-sub a {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.2s var(--ease);
+}
+.g-info .g-sub a:hover {
+  color: var(--t1);
+}
+/* 信息卡紧贴片名行 */
+.g-watch .g-info {
+  margin-top: 12px;
+}
+@media (max-width: 900px) {
+  .g-watch-title {
+    font-size: 17px;
+  }
+}
+
 /* ===== 播放页侧栏换源卡（替换原来那排点不动的「采集源」chip） ===== */
 /* 每行一个源：点一下就是换到这个源；左侧圆点=延迟档，右侧=毫秒/状态 */
 .g-srclist {
@@ -1811,82 +1890,7 @@
   background: rgba(15, 23, 42, 0.05);
 }
 
-/* ===== 搜索结果页内播放器 ===== */
-/*
- * 以前点来源胶囊是整页跳到 /watch：结果列表、筛选、滚动位置全丢，
- * 想换个源得按返回 → 重新搜索 → 再翻到那一部。这里就地播，关掉播放器结果原样还在。
- */
-.g-inline-player {
-  margin-top: 14px;
-  border-radius: var(--r-card);
-  border: 1px solid var(--bd);
-  background: rgba(8, 11, 22, 0.55);
-  overflow: hidden;
-}
-.g-inline-player-stage {
-  position: relative;
-  background: #000;
-  /* 宽度铺满 + 16:9 定高（写死 aspect 而不是按视口反推，任何窗口比例都一致）；
-     超高窗口下再用 min() 封顶，免得播放器把下面的结果列表整段挤出屏幕 */
-  width: 100%;
-  height: min(calc((100vw - 340px) * 9 / 16), 56vh);
-  min-height: 220px;
-  max-height: 620px;
-}
-@media (max-width: 900px) {
-  .g-inline-player-stage {
-    height: min(calc(100vw * 9 / 16), 50vh);
-  }
-}
-.g-inline-player-boot {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: var(--t4);
-  font-size: 13px;
-}
-.g-inline-player-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  font-size: 12.5px;
-  color: var(--t2);
-  border-top: 1px solid var(--bd);
-  min-width: 0;
-}
-.g-inline-player-bar b {
-  color: var(--t1);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 40%;
-}
-.g-inline-player-src {
-  color: var(--brand);
-  padding: 1px 8px;
-  border-radius: var(--r-pill);
-  background: rgba(103, 153, 254, 0.14);
-  white-space: nowrap;
-}
-.g-inline-player-ep {
-  color: var(--t4);
-  white-space: nowrap;
-}
-@media (max-width: 640px) {
-  .g-inline-player-bar b {
-    max-width: 30%;
-  }
-  .g-inline-player-src {
-    display: none;
-  }
-}
-
+/* 搜索结果页内播放器已移除（v14）：点来源胶囊直接进 /watch，播放器只在播放页出现。 */
 /* ===== 详情弹窗：来源切换条 ===== */
 /*
  * 宽屏下弹窗放宽：原来死守 max-w-4xl（896px），76 集的网格要滚整整两屏，

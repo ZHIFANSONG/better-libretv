@@ -227,16 +227,10 @@ function WatchContent() {
       <Header />
 
       <main className="g-page g-watch flex-1">
-        {/* 播放页次级条：返回 + 当前源。「下载本集」已并入下方集数操作行，
-            这条只剩两项，不再需要 g-spacer 撑开左右 */}
-        <div className="g-subbar g-glass" glass="tinted" glass-blur="10">
-          <BackButton />
-          <Link href={`/search?q=${encodeURIComponent(videoTitle)}`} className="g-src-name" title="用这个片名去搜索其它源">
-            {source.name}
-            {episodes.length > 0 && ` · 第 ${currentIndex + 1}/${episodes.length} 集`}
-          </Link>
-        </div>
-
+        {/*
+          版式参考爱奇艺网页版：左列 = 播放器 + 标题 + 信息 + 动作（播放器上是片名），
+          右列 = 换源 + 选集，页头之下直接是内容，不再有独立的「返回 + 源名」次级条。
+        */}
         <div className="g-layout">
           <div>
             {/* 舞台：16:9 圆角，与提案稿一致 */}
@@ -269,15 +263,29 @@ function WatchContent() {
               )}
             </div>
 
-            {/* 信息卡：标题标签 + 元信息 + 简介 + 动作 */}
+            {/* 播放器下方标题行（爱奇艺式）：片名 + 当前集数，后面跟着信息卡 */}
+            <h1 className="g-watch-title">
+              {videoTitle}
+              {episodes.length > 0 && (
+                <s>
+                  第 {currentIndex + 1}/{episodes.length} 集
+                </s>
+              )}
+            </h1>
+
+            {/* 信息卡：标签 + 元信息 + 简介 + 动作 */}
             <div className="g-info g-panel" glass="frosted" glass-blur="14">
-              <h1>
-                {videoTitle}
+              <div className="g-tags">
                 {videoInfo?.remarks && <s>{videoInfo.remarks}</s>}
                 {videoInfo?.year && <s>{videoInfo.year}</s>}
-              </h1>
+              </div>
               <div className="g-sub">
-                <span>{source.name}</span>
+                {/* 源名链回搜索结果：想换别的源，点它就能比一比 */}
+                <span>
+                  <Link href={`/search?q=${encodeURIComponent(videoTitle)}`} title="用这个片名去搜索其它源">
+                    {source.name}
+                  </Link>
+                </span>
                 {videoInfo?.typeName && <span>{videoInfo.typeName}</span>}
                 {videoInfo?.area && <span>{videoInfo.area}</span>}
                 {videoInfo?.director && <span>导演 {videoInfo.director}</span>}
@@ -320,6 +328,7 @@ function WatchContent() {
           </div>
 
           {/* 侧栏：换源 / 选集（快捷键说明改由播放器 first-ready 提示给出，不再常驻一卡） */}
+          {/* 320px+ 宽度下侧栏在右，窄屏时自动落到播放器下方（见 proposal.css） */}
           <aside className="g-side">
             <SourceSwitchCard
               title={videoTitle}
@@ -405,21 +414,3 @@ function EpisodeButton({ index, active, onClick }: { index: number; active: bool
   );
 }
 
-/** 返回上一页：无历史时回首页（外链直开场景） */
-function BackButton() {
-  const router = useRouter();
-  return (
-    <button
-      className="g-act ic"
-      onClick={() => {
-        if (window.history.length > 1) router.back();
-        else router.push('/');
-      }}
-      aria-label="返回"
-    >
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-      </svg>
-    </button>
-  );
-}
