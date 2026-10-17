@@ -20,6 +20,7 @@ import { SwitchSourceModal } from '@/components/switch-source';
 import type { SourceCandidate } from '@/lib/source-switch';
 import { SourceSwitchCard } from '@/components/source-switch-card';
 import { enqueueDownload } from '@/components/download-manager';
+import { plainText } from '@/components/detail-modal';
 import { Icon } from '@/components/icon';
 import { Header } from '@/components/header';
 import { SiteFooter } from '@/components/site-footer';
@@ -226,16 +227,14 @@ function WatchContent() {
       <Header />
 
       <main className="g-page g-watch flex-1">
-        {/* 播放页次级条：返回 + 当前源，动作放右侧（提案稿的浮动胶囊形态） */}
+        {/* 播放页次级条：返回 + 当前源。「下载本集」已并入下方集数操作行，
+            这条只剩两项，不再需要 g-spacer 撑开左右 */}
         <div className="g-subbar g-glass" glass="tinted" glass-blur="10">
           <BackButton />
           <Link href={`/search?q=${encodeURIComponent(videoTitle)}`} className="g-src-name" title="用这个片名去搜索其它源">
             {source.name}
             {episodes.length > 0 && ` · 第 ${currentIndex + 1}/${episodes.length} 集`}
           </Link>
-          <span className="g-spacer" />
-          {/* 「切换资源」不再放在这里：右侧换源卡已经把每个源都列出来了，重复入口只会让人多点一次 */}
-          <button className="g-act" onClick={handleDownload} disabled={!currentUrl}>下载本集</button>
         </div>
 
         <div className="g-layout">
@@ -284,7 +283,8 @@ function WatchContent() {
                 {videoInfo?.director && <span>导演 {videoInfo.director}</span>}
                 {episodes.length > 0 && <span>共 {episodes.length} 集</span>}
               </div>
-              {videoInfo?.desc && <p className="g-desc">{videoInfo.desc}</p>}
+              {/* 简介来自第三方源的 HTML 片段，直接渲染会把 "<p>" 当正文显示出来，这里转纯文本 */}
+              {videoInfo?.desc && <p className="g-desc">{plainText(videoInfo.desc)}</p>}
 
               <div className="g-acts">
                 <button
@@ -300,6 +300,11 @@ function WatchContent() {
                   onClick={() => goEpisode(currentIndex + 1)}
                 >
                   下一集
+                </button>
+                {/* 下载并入集数操作行：它按集工作，跟上一集/下一集是同一类动作，
+                    单独挂在顶部「次级条」里只会让那一条空出一大半宽度 */}
+                <button className="g-act" onClick={handleDownload} disabled={!currentUrl}>
+                  下载本集
                 </button>
                 <label className="g-act">
                   <input

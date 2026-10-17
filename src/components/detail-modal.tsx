@@ -29,7 +29,7 @@ import { Icon } from './icon';
  * 把接口里的 HTML 简介变成纯文本：去掉 <p>/<br>/<img> 之类的标签、还原常见实体。
  * 不做 dangerouslySetInnerHTML —— 简介来自第三方源，直接注入等于把 XSS 交给源站。
  */
-function plainText(html: string): string {
+export function plainText(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')

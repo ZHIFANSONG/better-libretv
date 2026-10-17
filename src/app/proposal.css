@@ -521,9 +521,12 @@
   border-bottom-color: transparent;
 }
 /* 历史下拉：搜索框是高斯模糊表面，下拉必须是同一块表面的下半截 ——
-   同底色 + 同 blur，只在下方给 100px 圆角与一圈细线，接缝处不画上边框（m07476）。 */
+   同底色 + 同 blur，接缝处不画上边框。
+   下圆角不能跟胶囊走：--r-pill 是 100px，而下拉框高 60~300px，100px 圆角会把
+   底部四项内容整个啃圆（用户截图里「后室」被切掉一半）。这里取固定 16px，
+   与面板/卡片圆角同一档，看起来仍是同一块表面但不会吃掉内容。 */
 .g-search-menu {
-  border-radius: 0 0 var(--r-pill) var(--r-pill);
+  border-radius: 0 0 16px 16px;
   /* 与 .g-search:focus-within 的底色完全一致：下拉出现时搜索框必然处于聚焦态，
      颜色对不上就会在接缝处断成两层。 */
   background-color: rgba(255, 255, 255, 0.09);

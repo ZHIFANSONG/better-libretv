@@ -42,6 +42,47 @@ interface PlayerShellProps {
   onRequestSwitchSource?: (reason: string) => void;
 }
 
+/**
+ * iPadOS 13+ 的 Safari 默认按桌面 UA 上报（"Macintosh"），所以这里除了 iPhone/iPad/iPod，
+ * 还要认「MacIntel + 多点触控」；再补一条 Artplayer 自带的 Safari 判定兜底（老 iPad 的 UA）。
+ * 只有 Mac 型 UA 配多点触控才算 iPadOS；带触控屏的 Windows 笔记本 UA 不含 Macintosh，不会被误判。
+ */
+const isAppleTouchDevice = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/i.test(ua)) return true;
+  const macLike = /\bMacintosh\b/.test(ua);
+  return (macLike && navigator.maxTouchPoints > 1) || Artplayer.utils.isSafari;
+};
+
+/**
+ * 把 <video> 交给系统播放器（iOS/iPadOS 的 HTMLVideoElement.webkitEnterFullscreen）。
+ *
+ * 为什么需要：iOS/iPadOS 上真正能「投到系统播放器 / 画中画 / 屏幕旋转」的是原生全屏，
+ * 而 Fullscreen API + playsinline 只会把容器撑满网页，看起来像全屏、实际仍是网页播放器。
+ * 代价是原生全屏期间 Artplayer 的控件、上下集与广告过滤都会失效，所以只在 Apple 触屏设备上走这条路；
+ * 桌面端完全不受影响（那条分支里 fullscreen 仍然是 Artplayer 自带的元素全屏）。
+ */
+function enterNativeFullscreen(video?: HTMLVideoElement) {
+  if (!video) return;
+  const v = video as HTMLVideoElement & {
+    webkitEnterFullscreen?: () => void;
+    webkitEnterFullScreen?: () => void;
+    webkitDisplayingFullscreen?: boolean;
+  };
+  // 原生全屏接管播放时不接受 JS 控制，先暂停并在退出后恢复，
+  // 否则退出原生全屏会落在「已经播过一段、进度条却停在进场时刻」的错位状态
+  const wasPlaying = !v.paused;
+  v.pause();
+  const restore = () => {
+    v.removeEventListener('webkitendfullscreen', restore);
+    if (wasPlaying) void v.play().catch(() => {});
+  };
+  v.addEventListener('webkitendfullscreen', restore);
+  if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+  else if (v.webkitEnterFullScreen) v.webkitEnterFullScreen();
+}
+
 export function PlayerShell({
   url,
   title,
@@ -93,6 +134,10 @@ export function PlayerShell({
   const recoveryRef = useRef<PlaybackRecovery | null>(null);
   // 自然播完标记，卸载时不回写进度（避免覆盖「已看完」记录）
   const endedRef = useRef(false);
+
+  // 是否走原生全屏：Apple 触屏设备（iPhone / iPad / iPadOS 桌面 UA）才需要，
+  // 桌面端保持 Artplayer 自带的元素全屏，行为不变
+  const isAppleTouch = isAppleTouchDevice();
 
   const showHint = (text: string) => {
     setHint(text);
@@ -283,6 +328,7 @@ export function PlayerShell({
       setting: true,
       playbackRate: true,
       aspectRatio: true,
+      // 全屏按钮照常显示；Apple 触屏设备上由下面的 art.fullscreen 拦截改走原生全屏
       fullscreen: true,
       fullscreenWeb: true,
       miniProgressBar: true,
@@ -303,6 +349,39 @@ export function PlayerShell({
       },
     });
     artRef.current = art;
+
+    // —— Apple 触屏设备的原生全屏 ——
+    // 全局 Artplayer 会在首次 loadedmetadata 时用 Object.defineProperty 给实例定义 fullscreen
+    // （getter 读 Fullscreen API、setter 调 requestFullscreen）。用同名 configurable defineProperty
+    // 覆盖它，全屏按钮、设置项、快捷键 f 都会自动走这一层，不必逐个改控件的点击处理器。
+    // 覆盖时机：constructor 的 inner 初始化在文档就绪后立即执行，覆盖仍落在首次 loadedmetadata 之前。
+    if (isAppleTouch) {
+      const player = art as unknown as {
+        fullscreen: boolean;
+        fullscreenWeb: boolean;
+      };
+      Object.defineProperty(player, 'fullscreen', {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+          const v = art.video as HTMLVideoElement & { webkitDisplayingFullscreen?: boolean };
+          return !!v?.webkitDisplayingFullscreen;
+        },
+        set: (on: boolean) => {
+          const v = art.video as HTMLVideoElement;
+          if (on) {
+            // 网页全屏状态先退出，否则原生全屏退出后会落回「网页全屏」而不是正常页面
+            if (player.fullscreenWeb) player.fullscreenWeb = false;
+            enterNativeFullscreen(v);
+            return;
+          }
+          // 退出交给系统播放器自带的关闭按钮；有些实现支持 webkitExitFullscreen，顺手调用以求稳
+          const exitable = v as HTMLVideoElement & { webkitExitFullscreen?: () => void };
+          exitable.webkitExitFullscreen?.();
+        },
+      });
+    }
+
     art.on('video:loadedmetadata', () => {
       // ArtPlayer 运行时支持 title 选项（类型定义未覆盖），用于界面标题展示
       try {
