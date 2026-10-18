@@ -2,12 +2,40 @@
 
 LibreTV Next.js 迁移版：免费在线视频聚合搜索与观看平台。基于 Next.js 15（App Router）+ TypeScript + Tailwind CSS，播放内核为 ArtPlayer + hls.js，支持亮暗双主题。
 
-> 🎨 **本仓库是二改版（better-libretv）**：在上游基础上重做了整站视觉与交互——按「深色玻璃拟态」重写首页 / 搜索 / 播放 / 直播 / 我的五页版式与组件样式，玻璃质感走 [glassium](https://www.npmjs.com/package/glassium) 的 CSS 后端（真 `backdrop-filter` 模糊 + 位移折射），并补齐顶部导航进度条、图片淡入、搜索扩散光、路由级骨架屏等动效。
-> 与本仓库的差异（[对比上游](https://github.com/LibreSpark/LibreTV)）：版式、配色、动效、`loading.tsx` / `not-found.tsx`、图片加载态。
-> 已落地的交互细节：首页首屏品牌大字 + 会滑动的分类分段控件（全部/电影/剧集/动漫/综艺/直播）；搜索提交改为「结果区模糊呼吸 + 按钮高亮」的加载态并保留封面逐张淡入；详情弹窗垂直真居中；播放页在 1440×900 / iPad 横竖屏 / 笔记本矮视口下均一屏放完（`docH == vh`）。
-- 搜索结果在宽屏按 4 / 3 / 2 / 1 列自适应排布（≥1440 四列、≥1024 三列、≥640 两列），海报 76~88px、简介吸底；来源数收进海报底部角标，选源交给详情弹窗。
-- 搜索框改为纯高斯模糊表面（blur(16px) saturate(1.25)），去掉了液态玻璃的折射边饰与色散光带；历史下拉是同一块表面的下半截（零接缝、同底色），窄屏按钮收成图标。
-> 上游功能与后端逻辑保持同步，可直接用本仓库替换上游部署。
+> 🎨 **本仓库是二改版（better-libretv），基线 v17**。上游功能与后端逻辑照旧，只重做了**表现层与客户端交互**，可直接替换上游部署。相对 [上游 LibreTV](https://github.com/LibreSpark/LibreTV) 的改动如下（按技术手段归类）：
+>
+> **1. 视觉体系：换一套 CSS，不动组件逻辑**
+> - 新增 `src/app/proposal.css`（约 2000 行）承载全部新皮肤，`globals.css` 仅留 token 与基础层；组件靠加类名（`.g-shell` / `.g-page` / `.g-stage` / `.g-panel` / `.g-seg` …）切换版式，业务代码结构基本没动。
+> - 玻璃质感走 [glassium](https://www.npmjs.com/package/glassium) 的 **CSS 后端**（`backdrop-filter: blur() saturate()` + `--glassium-refract` 位移贴图），不用 WebGL 后端：后者在容器里会把海报整块盖空，且每帧一张全屏画布在手机上太费电。
+> - 页面背景（46px 网格 + 两团漂移光斑）是 `.g-mesh` / `.g-bg` 两层 `fixed` DOM，z-index 0/1，内容层 z-index 2 —— 玻璃要模糊到东西，必须自己下面有可模糊的内容。
+>
+> **2. 版式重做：首页 / 搜索 / 播放 / 直播 / 我的**
+> - 首页：品牌大字 + 会滑动的分类分段控件（`.g-seg-ind` 绝对定位胶囊，量激活项盒子后平移）+ 豆瓣海报网格 + 「继续观看」。
+> - 搜索：结果改自适应网格（≥1440 四列 / ≥1024 三列 / ≥640 两列 / 单列）；搜索框改纯高斯模糊表面，历史下拉是同一块表面的下半截（零接缝）。
+> - 播放：爱奇艺式「舞台 + 右栏」排布，删掉次级信息条与纯展示的「采集源 / 快捷键」卡；舞台高度改 `max-height: calc(100dvh - 190px)`，不再按 `(100vh - 430px) * 16/9` 反推宽度，各种比例都不会缩成小方块。
+> - 直播 / 我的：同样落到 `.g-shell` 版式；「我的」把采集源健康度、观看历史、离线下载平铺成一页（原来是抽屉散在各处）。
+>
+> **3. 播放器**
+> - Apple 触屏（iPhone / iPad / iPadOS 桌面 UA）走 `video.webkitEnterFullscreen()` 交给系统播放器；实现方式是 `Object.defineProperty` 覆盖 Artplayer 实例的 `fullscreen` 存取器，全屏按钮、设置项、快捷键 `f` 自动跟着改道。
+> - 因此**去掉了 `crossOrigin: 'anonymous'`**：带 crossOrigin 的视频在 iOS 上被判为跨域媒体，`webkitEnterFullscreen()` 会静默失效（点全屏没反应），而采集站也不给 CORS 头。
+> - 关掉 `airplay`（桌面 Chromium 上点了只弹「AirPlay Not Available」），错误遮罩加「换个源」。
+>
+> **4. 换源与选源：搜索结果直接选 API、并显示延迟**
+> - `src/lib/source-switch.ts`：`collectSourceCandidates` 逐源流式搜索同名资源 → 立刻匹配 → 回调占位 → 每个源单独 `detailSpeed` 测速原地更新；`sortCandidates` 当前源置顶、可用优先、延迟升序。
+> - 播放页右栏 `SourceSwitchCard`：每行显示「源名 + 延迟圆点（<600ms 绿 / <1500ms 黄 / 超时红）+ 毫秒数」，点一行即换源并保留当前集数；「测速全部」按需触发，失败时自动重测。
+> - 搜索页：结果卡底部直接给出来源胶囊（带延迟圆点），点一下**就地播放**（`dynamic(ssr:false)` 挂 `PlayerShell`，不跳页、不丢筛选条件）；详情弹窗顶部也能选源，并显示「共 N 个来源」。
+> - 失败/停用源原本是三条整宽横幅，压成一行可展开的状态条。
+>
+> **5. 源健康度与搜索策略**
+> - 单源搜索死线 10s → **15s**（健康源取首页 + 分页本就要 6~8s），单页 `timeoutMs` 与整源死线对齐；客户端是 NDJSON 流式逐源回吐，慢源不拖整体。
+> - 自动停用阈值 2 → **3** 次连续失败，阶梯 30 分钟 → 24 小时 → 长期不变。
+> - `resolveSource` 增加按 URL 反查兜底（key 对不上时不至于误报「点播源不存在」）；预置源与订阅源按地址去重，同一采集站不再出现两套。
+>
+> **6. 默认值与工程**
+> - 首页推荐默认 `hot-list` → **`douban`**（榜单接口常限流，首屏常空），`store` 版本升到 v3 并为「没主动选过」的用户做迁移。
+> - 新增 `loading.tsx` / `not-found.tsx` / `top-progress.tsx`（App Router 无路由事件，靠捕获阶段拦 `<a>` 点击 + `popstate` 自己拼进度）/ 封面逐张淡入（`.g-img` → `.g-img-in`）。
+> - 清理上游留的死代码（`transmuxTSToMP4` / `deleteEpisodeCache` / `hasCachedSegment` / `fetchUpstreamJson` / `clearLiveRecent` 等），修 4 个红灯单测。
+> - 镜像与 CI 换成 `ghcr.io/zhifansong/better-libretv` / `docker.io/zhifansong/better-libretv`。
 
 > 🏠 **官网**：[LibreTV 官网](https://libretv.is-an.org/)
 >
