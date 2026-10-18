@@ -361,7 +361,7 @@ function LiveContent() {
           >
             {/* 抽屉把手栏（仅移动端） */}
             <div className="flex items-center justify-between px-3 pt-3 pb-1 shrink-0 lg:hidden">
-              <span className="g-subbar g-title">频道列表</span>
+              <span className="g-drawer-title">频道列表</span>
               <button
                 className="g-act ic"
                 aria-label="关闭频道列表"

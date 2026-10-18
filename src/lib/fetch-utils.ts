@@ -113,12 +113,6 @@ export async function fetchUpstreamWithMeta(url: string, options: FetchOptions =
   throw lastError instanceof Error ? lastError : new Error('上游请求失败');
 }
 
-export async function fetchUpstreamJson<T = unknown>(url: string, options: FetchOptions = {}): Promise<T> {
-  const res = await fetchUpstream(url, options);
-  if (!res.ok) throw new Error(`上游请求失败: ${res.status}`);
-  const data = (await res.json()) as T;
-  return data;
-}
 
 /** 内存 TTL 缓存（豆瓣推荐等热点数据） */
 const cache = new Map<string, { value: unknown; expiresAt: number }>();

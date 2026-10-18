@@ -70,15 +70,12 @@ export function AggregatedCard({
   group,
   onOpen,
   onPlaySource,
-  playingKey,
 }: {
   group: AggregatedGroup;
   /** 点卡片本体：打开详情弹窗（可以看到简介、分集、全部来源） */
   onOpen: (item: SearchResultItem, group: AggregatedGroup) => void;
-  /** 点某一个来源胶囊：就在本页播放器里放这个源的资源（不跳走，搜索结果不丢） */
+  /** 点某一个来源胶囊：直接用这个源的资源开播（v14 起跳 /watch，不再本页内嵌播放） */
   onPlaySource?: (item: SearchResultItem) => void;
-  /** 正在本页播放的那条来源，用来在胶囊上打「播放中」标记 */
-  playingKey?: string;
 }) {
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const customImageProxy = useAppStore((s) => s.customImageProxy);
@@ -156,7 +153,7 @@ export function AggregatedCard({
             return (
               <button
                 key={key}
-                className={`g-rcard-srcrow${playingKey === key ? ' on' : ''}`}
+                className="g-rcard-srcrow"
                 title={`用「${it.sourceName || it.sourceKey}」播放${it.remarks ? ` · ${it.remarks}` : ""}${h?.ms != null ? ` · 搜索耗时 ${h.ms}ms` : ""}`}
                 onClick={(e) => {
                   e.stopPropagation();

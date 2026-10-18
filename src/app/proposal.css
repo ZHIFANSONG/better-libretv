@@ -1183,30 +1183,6 @@
   padding: 18px 20px;
   border-radius: var(--r-card);
 }
-.g-info h1 {
-  font-size: 20px;
-  font-weight: 500;
-  margin: 0 0 10px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  color: var(--t1);
-}
-.g-info h1 s {
-  text-decoration: none;
-  font-size: 10.5px;
-  font-family: var(--mono);
-  padding: 3px 8px;
-  border-radius: var(--r-pill);
-  background: rgba(77, 107, 254, 0.24);
-  border: 1px solid rgba(120, 150, 255, 0.42);
-  color: #cfe0ff;
-}
-:root:not(.dark) .g-info h1 s {
-  color: var(--brand-deep);
-  background: rgba(77, 107, 254, 0.12);
-}
 .g-info .g-sub {
   font-size: 12.5px;
   color: var(--t3);
@@ -1358,36 +1334,18 @@
 .g-sidebar > div {
   min-height: 0;
 }
-/* 播放页/直播页顶栏：回到提案的浮动胶囊（.g-nav 由 Header 渲染，这里是页面内的次级条） */
-.g-subbar {
+/* 直播页移动端抽屉把手（原来复用播放页次级条的 .g-subbar，那条链路已删，独立出来） */
+.g-drawer-title {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   padding: 8px 16px 8px 10px;
   border-radius: var(--r-pill);
   margin-bottom: 4px;
-}
-.g-subbar .g-title {
   font-size: 13px;
   font-weight: 500;
   color: var(--t1);
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-}
-.g-subbar .g-src-name {
-  font-size: 11px;
-  color: var(--t4);
-  font-family: var(--mono);
-  white-space: nowrap;
-  flex: none;
-  transition: color 0.2s var(--ease);
-}
-.g-subbar .g-src-name:hover {
-  color: var(--t2);
-}
-.g-subbar .g-spacer {
-  flex: 1;
 }
 
 /* ===== 播放页 / 直播页：版式收尾（m04824） ===== */
@@ -1464,19 +1422,8 @@
   }
 }
 
-/* ===== 播放页：一页放完 + iPad 优先（m06954-4） ===== */
-/* 目标：次级条 + 舞台 + 信息卡 + 右侧三张卡在同一屏里全部露脸，不靠滚动找内容。 */
-.g-watch {
-  padding-top: 82px;
-  padding-bottom: 24px;
-}
-.g-watch .g-layout {
-  margin-top: 12px;
-  gap: 18px;
-}
-.g-watch .g-subbar {
-  margin-bottom: 2px;
-}
+/* ===== 播放页：一屏内放完 + iPad 优先 ===== */
+/* 目标：舞台 + 片名 + 信息卡 + 右侧卡片在同一屏里全部露脸，不靠滚动找内容。 */
 /* 右侧栏跟随滚动：看信息卡时选集还在手边 */
 .g-watch .g-side {
   position: sticky;
@@ -1485,13 +1432,9 @@
 .g-watch .g-card {
   padding: 14px;
 }
+/* 信息卡内边距：必须写在下面 @media(max-height:860px) 之前，矮屏那条才能盖住它 */
 .g-watch .g-info {
-  margin-top: 14px;
   padding: 16px 18px;
-}
-.g-watch .g-info h1 {
-  font-size: 18px;
-  margin-bottom: 8px;
 }
 .g-watch .g-info .g-desc {
   max-height: 72px;
@@ -1563,9 +1506,11 @@
  */
 .g-watch {
   padding-top: 76px;
+  padding-bottom: 24px;
 }
 .g-watch .g-layout {
   margin-top: 0;
+  gap: 18px;
 }
 /* 播放器下方片名行：大标题 + 集数胶囊 */
 .g-watch-title {
@@ -1624,7 +1569,7 @@
 .g-info .g-sub a:hover {
   color: var(--t1);
 }
-/* 信息卡紧贴片名行 */
+/* 信息卡紧贴片名行（margin 在上面的 v14 块里定；这里只管内边距） */
 .g-watch .g-info {
   margin-top: 12px;
 }
@@ -1837,23 +1782,11 @@
   font-size: 10px;
   color: var(--t4);
 }
-.g-rcard-srcrow.on em {
-  color: rgba(255, 255, 255, 0.85);
-}
 .g-rcard-srcrow:hover,
 .g-rcard-srcmore:hover {
   color: var(--t1);
   border-color: var(--brand);
   background: rgba(103, 153, 254, 0.16);
-}
-/* 正在本页播放的那条来源：实心高亮，回头一眼能看出「现在用的是哪个源」 */
-.g-rcard-srcrow.on {
-  color: #fff;
-  border-color: var(--brand);
-  background: var(--brand);
-}
-.g-rcard-srcrow.on .g-dot {
-  background: #fff;
 }
 .g-rcard-srcmore {
   font-family: var(--mono);

@@ -95,17 +95,6 @@ export async function ensurePersistentStorage(): Promise<void> {
   } catch { /* 忽略 */ }
 }
 
-export async function hasCachedSegment(key: string): Promise<boolean> {
-  const store = cacheStore();
-  if (!store) return false;
-  try {
-    const cache = await store.open(VIDEO_CACHE_NAME);
-    const hit = await cache.match(key);
-    return !!hit;
-  } catch {
-    return false;
-  }
-}
 
 export interface CachedFragment {
   data: ArrayBuffer;
@@ -259,14 +248,3 @@ export async function clearVideoCache(): Promise<void> {
   } catch { /* 忽略 */ }
 }
 
-export async function deleteEpisodeCache(episodeKey: string): Promise<void> {
-  const store = cacheStore();
-  try {
-    const metas = await db.segmentMeta.where('episodeKey').equals(episodeKey).toArray();
-    if (store) {
-      const cache = await store.open(VIDEO_CACHE_NAME);
-      await Promise.all(metas.map((m) => cache.delete(m.key)));
-    }
-    await db.segmentMeta.bulkDelete(metas.map((m) => m.key));
-  } catch { /* 忽略 */ }
-}

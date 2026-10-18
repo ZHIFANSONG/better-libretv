@@ -1,16 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Header } from '@/components/header';
 import { SiteFooter } from '@/components/site-footer';
-import { DetailModal } from '@/components/detail-modal';
 import { EmptyState, LoadingState } from '@/components/states';
 import { SmartImage } from '@/components/smart-image';
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/toast';
-import { Dropdown } from '@/components/dropdown';
 import { requestShowDownloadManager } from '@/components/download-manager';
 import {
   db,
@@ -18,12 +16,10 @@ import {
   removeHistory,
   upsertHistory,
   MAX_HISTORY,
-  type HistoryEntry,
   type DownloadTaskEntry,
 } from '@/lib/db';
 import { buildWatchUrl, cn, formatRelativeTime, formatTime } from '@/lib/utils';
 import { resolveSource, useAppStore, isSourceDisabled } from '@/lib/store';
-import type { SearchResultItem } from '@/lib/types';
 
 /**
  * 我的（proposal 版）：把原本散在抽屉/设置里的三块内容平铺成页面 ——
@@ -295,7 +291,6 @@ function SourceTab() {
 /** 离线下载：任务列表 + 进度（进度条复用 g-prog） */
 function DownloadTab() {
   const tasks = useLiveQuery(() => db.downloads.orderBy('createdAt').reverse().toArray(), []);
-  const [detailItem] = useState<SearchResultItem | null>(null);
 
   if (!tasks) return <LoadingState />;
 
@@ -320,7 +315,6 @@ function DownloadTab() {
           打开下载管理器
         </button>
       </div>
-      <DetailModal item={detailItem} onClose={() => {}} />
     </section>
   );
 }

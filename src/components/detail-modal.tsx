@@ -1,17 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { api } from '@/lib/client-api';
 import type { SearchResultItem, VideoDetail } from '@/lib/types';
 import { isSourceDisabled } from '@/lib/store';
 import { latencyLevel } from '@/lib/source-switch';
-import { buildWatchUrl } from '@/lib/utils';
 import { SmartImage } from './smart-image';
 import { useAppStore, resolveSource } from '@/lib/store';
 import { useToast } from './toast';
 import { cn } from '@/lib/utils';
-import { addSearchHistory } from '@/lib/db';
 import { copyToClipboard } from '@/lib/clipboard';
 import { EmptyState, ErrorState, LoadingState } from './states';
 import { useFocusTrap } from './use-focus-trap';
@@ -54,12 +51,11 @@ export function DetailModal({
   group?: { items: SearchResultItem[] } | null;
   /** 切换来源：父组件更新 item 后弹窗自动重新取详情 */
   onSelectItem?: (next: SearchResultItem) => void;
-  /** 就地播放：传了它时，来源胶囊直接在当前页面播放器里开播，不再跳 /watch */
-  onPlay?: (item: SearchResultItem, startIndex: number) => void;
+  /** 点集数后去哪儿播（搜索页传的是「跳 /watch」）；弹窗自己不决定播放方式 */
+  onPlay: (item: SearchResultItem, startIndex: number) => void;
   onClose: () => void;
 }) {
   const store = useAppStore();
-  const router = useRouter();
   const { toast } = useToast();
   const [detail, setDetail] = useState<VideoDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -134,24 +130,9 @@ export function DetailModal({
     (it, i, arr) => arr.findIndex((x) => x.sourceKey === it.sourceKey) === i
   );
 
-  const play = (index: number) => {
-    // 就地播放：不跳页，结果和弹窗状态都留着
-    if (onPlay) {
-      onPlay(item, index);
-      return;
-    }
-    if (!detail || !detail.episodes[index]) return;
-    addSearchHistory(item.name).catch(() => {});
-    router.push(
-      buildWatchUrl({
-        sourceKey: item.sourceKey,
-        vodId: item.vodId,
-        index,
-        title: item.name,
-        sourceUrl: item.sourceUrl,
-      })
-    );
-  };
+  // 播放交给父组件：弹窗只负责「选了哪一集」，不掺和路由（原来这里还有一段
+  // addSearchHistory + router.push 的兜底，v14 之后已无调用方能走到，删掉）
+  const play = (index: number) => onPlay(item, index);
 
   const copyLinks = async () => {
     if (!detail) return;

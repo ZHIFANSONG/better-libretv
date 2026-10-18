@@ -24,7 +24,6 @@ import { detectSavingCapability, pickSaveTarget } from '@/lib/download-saver';
 const MAX_CONCURRENT_DOWNLOADS = 3;
 const ADD_TASK_EVENT = 'libretv:add-download';
 const SHOW_MANAGER_EVENT = 'libretv:show-download-manager';
-export const DOWNLOADS_UPDATED_EVENT = 'libretv:downloads-updated';
 
 export interface AddDownloadPayload {
   url: string;

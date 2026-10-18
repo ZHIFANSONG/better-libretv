@@ -166,20 +166,3 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   return out;
 }
 
-/** 批量转封装：push 全部分片后一次 flush，聚合为 MP4 Blob（内存型，适合小体量） */
-export function transmuxTSToMP4(tsSegments: Uint8Array[], duration?: number): Blob {
-  const transmuxer = new muxjs.mp4.Transmuxer({ keepOriginalTimestamps: true });
-  const chunks: Uint8Array[] = [];
-  let initWritten = false;
-  transmuxer.on('data', (segment: any) => {
-    if (!initWritten) {
-      const init = new Uint8Array(segment.initSegment);
-      chunks.push(duration ? patchInitSegmentDuration(init, duration) : init);
-      initWritten = true;
-    }
-    chunks.push(new Uint8Array(segment.data));
-  });
-  for (const ts of tsSegments) transmuxer.push(ts);
-  transmuxer.flush();
-  return new Blob(chunks.map((c) => c.buffer as ArrayBuffer), { type: 'video/mp4' });
-}

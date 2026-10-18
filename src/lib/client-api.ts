@@ -264,11 +264,6 @@ export const api = {
   },
 };
 
-export interface SearchFailure {
-  sourceKey: string;
-  error: string;
-  timedOut?: boolean;
-}
 
 /** 聚合搜索流式消费：逐源回调 + 最终聚合结果（NDJSON 行协议，同 liveProbeStream） */
 async function searchStream(
