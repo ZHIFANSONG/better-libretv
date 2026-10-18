@@ -144,6 +144,11 @@
   .g-bg i {
     animation: none;
   }
+  /* 顶栏气泡与分类高亮块的滑动：减少动效时直接归位 */
+  .g-nav-bubble,
+  .g-seg-ind {
+    transition: none;
+  }
 }
 :root:not(.dark) .g-bg {
   opacity: 0.5;
@@ -232,12 +237,27 @@
  * 绝不加 transition —— glassium 的 glass-glide 认的是「一帧跳超过 24px」，
  * 平滑过渡会被拆成每帧几像素的小位移，玻璃就只会跟着挪、不会飞。
  */
+/*
+ * 选中气泡的「飞过去」：glassium 的 glass-glide 只在 WebGPU / WebGL2 后端生效，
+ * 本项目为兼容性把 runtime 锁在 backend:'css'（src/components/glass-runtime.tsx），
+ * 那条路径永远走不到，气泡就成了硬跳。所以这里自己补一段位移动画。
+ *
+ * 补的方式就是直接给 left/top/width/height 加 transition（这里没有 transform 可以借，
+ * 因为 bubbleBox 量的就是这个盒子）。首帧定位在 header.tsx 里用 suppressAnimation()
+ * 临时关掉 transition，避免气泡从 (0,0) 滑进来；路径切换时若目标超过半屏则瞬移。
+ */
 .g-nav-bubble {
   position: absolute;
   z-index: 0;
   border-radius: var(--r-pill);
   pointer-events: none;
-  transition: none;
+  will-change: left, top, width, height;
+  transition:
+    left 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s var(--ease);
 }
 .g-brand {
   display: flex;
@@ -250,14 +270,33 @@
   color: var(--t1);
   flex: none;
 }
+/*
+ * 品牌标：原来只是一个纯色渐变方块，存在感接近零，用户直接看成「logo 没了」。
+ * 现在做成有内容的播放键标 —— 渐变 + 高光边 + 一个白色三角，
+ * 同时把 .g-brand 文字调亮，让整块品牌区在任何背景亮度下都立得住。
+ */
 .g-mark {
+  position: relative;
   display: block;
   flex: none;
   width: 27px;
   height: 27px;
   border-radius: 9px;
   background: linear-gradient(140deg, #3a65c2, #6799fe);
-  box-shadow: 0 8px 20px -12px rgba(77, 107, 254, 0.6);
+  box-shadow: 0 8px 20px -12px rgba(77, 107, 254, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.g-mark::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform: translate(-38%, -50%);
+  border-style: solid;
+  border-width: 5.5px 0 5.5px 9px;
+  border-color: transparent transparent transparent #fff;
+  opacity: 0.96;
 }
 .g-navlink {
   position: relative;
@@ -605,22 +644,7 @@
   cursor: not-allowed;
 }
 
-/* ---- 右侧抽屉（播放设置） ---- */
-.g-drawer {
-  position: fixed;
-  right: 20px;
-  top: 78px;
-  z-index: 40;
-  width: 238px;
-  padding: 16px;
-  border-radius: var(--r-card);
-}
-@media (max-width: 1380px) {
-  .g-drawer {
-    display: none;
-  }
-}
-.g-drawer h4,
+/* ---- 卡片小标题（首页「播放设置」抽屉已于 v16 删除，这里只剩卡片共用部分） ---- */
 .g-card h4 {
   margin: 0 0 12px;
   font-size: 13px;
@@ -630,63 +654,11 @@
   align-items: center;
   color: var(--t1);
 }
-.g-drawer h4 em,
 .g-card h4 em {
   font-style: normal;
   font-family: var(--mono);
   font-size: 10px;
   color: var(--t4);
-}
-.g-drow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  font-size: 12.5px;
-  color: var(--t2);
-  padding: 8px 0;
-}
-.g-drawer .g-note {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--t4);
-}
-.g-drow b {
-  font-weight: 400;
-  color: var(--t3);
-  font-family: var(--mono);
-  font-size: 11px;
-  text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.g-src {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin: 4px 0 14px;
-}
-.g-src span {
-  font-size: 11.5px;
-  padding: 5px 11px;
-  border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid var(--bd);
-  color: var(--t2);
-}
-:root:not(.dark) .g-src span {
-  background: rgba(0, 0, 0, 0.04);
-}
-.g-src span.on {
-  background: rgba(77, 107, 254, 0.28);
-  border-color: rgba(120, 150, 255, 0.5);
-  color: #fff;
-}
-:root:not(.dark) .g-src span.on {
-  color: var(--brand-deep);
-  background: rgba(77, 107, 254, 0.16);
 }
 
 /* ---- 搜索结果网格（m07594：横屏不再一行一部，改 3~4 列卡片） ---- */
@@ -1081,11 +1053,6 @@
 }
 .g-filterbar .g-tabs {
   margin: 0;
-}
-/* 抽屉里需要整行占位的小标题（如「启用中的源」） */
-.g-drow-block {
-  display: block;
-  padding-bottom: 0;
 }
 /* ===== 播放页 / 直播页：提案稿 B/C 版式补丁（m04719） ===== */
 /* 顶栏入口标签：播放页是 /watch，导航项「首页」不该点亮，改用播放态说明 */
@@ -2032,12 +1999,19 @@
 .g-seg::-webkit-scrollbar {
   display: none;
 }
+/* 同 .g-nav-bubble：glass-glide 在 CSS 后端不生效，滑动交给 CSS transition 自己做。 */
 .g-seg-ind {
   position: absolute;
   z-index: 0;
   border-radius: var(--r-pill);
   pointer-events: none;
-  transition: none;
+  will-change: left, top, width, height;
+  transition:
+    left 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s var(--ease);
 }
 .g-seg-i {
   position: relative;

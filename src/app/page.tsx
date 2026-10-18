@@ -5,17 +5,16 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Header } from '@/components/header';
 import { RecommendSection, type HeroTab } from '@/components/douban-section';
 import { ContinueWatchingSection } from '@/components/continue-watching';
-import { PlaySettingsDrawer } from '@/components/play-settings-drawer';
 import { SearchHistoryDropdown, useSearchHistory } from '@/components/search-history';
 import { Icon } from '@/components/icon';
 import { SiteFooter } from '@/components/site-footer';
 import { useToast } from '@/components/toast';
 import { cn } from '@/lib/utils';
-import { bubbleBox, sameBox, type BubbleBox } from '@/lib/glass-nav';
+import { bubbleBox, placeSlider, sameBox, type BubbleBox } from '@/lib/glass-nav';
 
 /**
- * 首页（proposal A）：Hero 搜索胶囊 + 分类胶囊 + 热门推荐 / 继续观看两段海报区，
- * 右侧常驻「播放设置」玻璃抽屉。搜索本身交给搜索页（/search?q=），
+ * 首页（proposal A）：Hero 搜索胶囊 + 分类胶囊 + 热门推荐 / 继续观看两段海报区。
+ * 原来右侧常驻的「播放设置」玻璃抽屉已删除（v16，设置统一走顶栏齿轮）。搜索本身交给搜索页（/search?q=），
  * 旧链接 ?s= 会被原地重定向过去，保证老书签与分享链接继续可用。
  */
 /** 首屏分段控件里的分类（直播是独立出去的跳转，不参与选中态） */
@@ -72,11 +71,10 @@ function HomeContent() {
   }, [legacyQuery, router]);
 
   /**
-   * 把高亮块挪到当前选中的分类上。写 style 而不是走 state：位置只喂给 glassium 的
-   * ElementMotion，每帧重渲染 React 没有意义，而且玻璃要看到「一次跳变」才会起飞。
-   * 和顶栏气泡同一套做法（src/components/header.tsx 的 syncBubble）。
+   * 把高亮块挪到当前选中的分类上。写 style 而不是走 state：位置每帧喂给渲染没有意义。
+   * 滑动同样交给 CSS transition（glass-glide 在 CSS 后端不生效，原因见 header.tsx 的 syncBubble）。
    */
-  const syncSeg = useCallback(() => {
+  const syncSeg = useCallback((opts: { instant?: boolean } = {}) => {
     const seg = segRef.current;
     const ind = segIndRef.current;
     if (!seg || !ind) return;
@@ -85,32 +83,33 @@ function HomeContent() {
       ind.style.opacity = '0';
       return;
     }
-    if (segBoxRef.current && sameBox(segBoxRef.current, box)) {
+    const prev = segBoxRef.current;
+    if (prev && sameBox(prev, box)) {
       ind.style.opacity = '1';
       return;
     }
     segBoxRef.current = box;
-    ind.style.left = `${box.x}px`;
-    ind.style.top = `${box.y}px`;
-    ind.style.width = `${box.w}px`;
-    ind.style.height = `${box.h}px`;
+    placeSlider(ind, box, { animate: !opts.instant, key: 'g-seg-ind' });
     ind.style.opacity = '1';
   }, []);
 
   useEffect(() => {
     syncSeg();
-    const raf = requestAnimationFrame(syncSeg);
-    window.addEventListener('resize', syncSeg);
+    // rAF 会传时间戳进来，这里只认 opts，包一层。
+    const raf = requestAnimationFrame(() => syncSeg());
+    // 窗口尺寸变化时元素本身在动，跟着滑反而拖泥带水，直接贴着走。
+    const onResize = () => syncSeg({ instant: true });
+    window.addEventListener('resize', onResize);
     const seg = segRef.current;
-    const ro = typeof ResizeObserver !== 'undefined' && seg ? new ResizeObserver(syncSeg) : null;
+    const ro = typeof ResizeObserver !== 'undefined' && seg ? new ResizeObserver(onResize) : null;
     if (seg && ro) ro.observe(seg);
     // 字体晚一步到，格子的宽度会变，量一次再定。
     if (typeof document !== 'undefined' && 'fonts' in document) {
-      void document.fonts.ready.then(() => syncSeg());
+      void document.fonts.ready.then(() => syncSeg({ instant: true }));
     }
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener('resize', syncSeg);
+      window.removeEventListener('resize', onResize);
       ro?.disconnect();
     };
   }, [syncSeg]);
@@ -221,16 +220,9 @@ function HomeContent() {
           {/* 分类：原来 6 个散胶囊收成一条分段控件，选中项由一块滑动玻璃标出 */}
           <div className="g-seg-row">
             <div className="g-seg" ref={segRef}>
-              <span
-                className="g-seg-ind"
-                style={IND_INIT}
-                ref={segIndRef}
-                aria-hidden
-                glass="tinted"
-                glass-blur="10"
-                glass-jelly=""
-                glass-glide=""
-              />
+              {/* 滑动由 .g-seg-ind 的 CSS transition 负责（glass-glide 在 CSS 后端是死代码），
+                  所以不再挂 glass-glide / glass-jelly。 */}
+              <span className="g-seg-ind" style={IND_INIT} ref={segIndRef} aria-hidden glass="tinted" glass-blur="10" />
               {SEG_ITEMS.map((t) => (
                 <button
                   key={t.id}
@@ -259,7 +251,6 @@ function HomeContent() {
         <ContinueWatchingSection />
       </main>
 
-      <PlaySettingsDrawer />
       <SiteFooter />
     </div>
   );
