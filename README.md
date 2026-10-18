@@ -251,6 +251,26 @@ git push && git push --tags
 
 CI 校验通过后自动构建并推送 `ghcr.io/zhifansong/better-libretv:<版本>`（详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)）。
 
+## 运维备忘（小内存服务器）
+
+Docker 默认不限制容器日志，长期运行会把小盘撑满；且 `dockerd` 在统计存储（`docker system df` / 批量 `rmi`）时会一次性遍历所有 overlay 层，1.8G 内存的机器上容易被内核 OOM 杀掉，连带所有容器重启。建议在 `/etc/docker/daemon.json` 里加日志轮转：
+
+```json
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+```
+
+改完 `systemctl restart docker`（会重启全部容器）。历史镜像长期堆积时，先加临时 swap 再跑一次回收，结束后再删掉 swap 文件：
+
+```bash
+dd if=/dev/zero of=/swapfile bs=1M count=2048 && chmod 600 /swapfile
+mkswap /swapfile && swapon /swapfile
+docker image prune -a -f && docker system prune -f
+swapoff /swapfile && rm -f /swapfile
+```
+
 ## 安全说明
 
 - 密码只保存在服务端环境变量中，前端不持有任何可重放凭证。
