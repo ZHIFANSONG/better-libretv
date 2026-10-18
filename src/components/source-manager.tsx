@@ -12,6 +12,7 @@ import {
   SelectRow,
   TestBadge,
   ToggleRow,
+  NumberField,
   Switch,
   useSourceTests,
   type TestState,
@@ -574,6 +575,44 @@ function PlaybackPanel() {
           checked={store.autoplayNext}
           onChange={(v) => store.updateSettings({ autoplayNext: v })}
         />
+        {/*
+          跳过片头/片尾的「全局默认值」。真正的值是按剧存的（播放页动作行可覆盖），
+          这里只决定没单独配过的剧用多少秒；填 0 就是默认不跳。
+        */}
+        <div className="flex items-center justify-between gap-4 py-0.5">
+          <div className="min-w-0">
+            <div className="text-sm text-content">默认跳过片头</div>
+            <div className="text-xs text-faint">
+              没单独设过的剧首次播放时自动跳过的秒数，0 = 不跳。首集不生效。
+            </div>
+          </div>
+          <NumberField
+            value={store.skipIntroSec}
+            min={0}
+            max={600}
+            step={5}
+            unit="秒"
+            ariaLabel="默认跳过片头秒数"
+            onChange={(v) => store.updateSettings({ skipIntroSec: v })}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4 py-0.5">
+          <div className="min-w-0">
+            <div className="text-sm text-content">默认提前跳片尾</div>
+            <div className="text-xs text-faint">
+              距结尾还剩多少秒时直接算作本集结束，0 = 不跳。
+            </div>
+          </div>
+          <NumberField
+            value={store.skipOutroSec}
+            min={0}
+            max={600}
+            step={5}
+            unit="秒"
+            ariaLabel="默认提前跳片尾秒数"
+            onChange={(v) => store.updateSettings({ skipOutroSec: v })}
+          />
+        </div>
       </div>
       <VideoCachePanel />
     </section>

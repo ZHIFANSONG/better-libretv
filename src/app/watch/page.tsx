@@ -19,6 +19,7 @@ import { EmptyState, LoadingState, Spinner } from '@/components/states';
 import { SwitchSourceModal } from '@/components/switch-source';
 import type { SourceCandidate } from '@/lib/source-switch';
 import { SourceSwitchCard } from '@/components/source-switch-card';
+import { SkipConfigButton } from '@/components/skip-config';
 import { enqueueDownload } from '@/components/download-manager';
 import { plainText } from '@/components/detail-modal';
 import { Icon } from '@/components/icon';
@@ -32,6 +33,9 @@ import {
   saveProgress,
   updateHistoryProgress,
   upsertHistory,
+  getSkipConfig,
+  saveSkipConfig,
+  clearSkipConfig,
   db,
 } from '@/lib/db';
 import { cn } from '@/lib/utils';
@@ -61,7 +65,14 @@ function WatchContent() {
   const titleParam = searchParams.get('title') || '';
   const indexParam = parseInt(searchParams.get('index') || '0', 10) || 0;
 
+  // —— 跳过片头/片尾 ——
+  // 本剧的覆盖值（IndexedDB，按 sourceKey+vodId 绑定整部剧）；null = 没配过，用全局默认。
+  // 存在本地是刻意的：不同采集站的同一部剧片头长度不同，跟着「源+剧」走才不会串。
+  const [skipOverride, setSkipOverride] = useState<{ introSec: number; outroSec: number } | null>(null);
+
   const [reversed, setReversed] = useState(false);
+  // 简介是否展开（默认收起，限高 3~4 行）
+  const [descOpen, setDescOpen] = useState(false);
   // 换源弹窗：null = 关闭；数组 = 打开，并带上换源卡已经测到的候选（省掉一轮重复搜索）
   const [switchOpen, setSwitchOpen] = useState<SourceCandidate[] | null>(null);
   // 播放中致命错误的次数：每次 +1 触发侧栏换源卡自动测速
@@ -82,6 +93,8 @@ function WatchContent() {
 
   const videoInfo = detailQuery.data?.videoInfo;
   const episodes = useMemo(() => detailQuery.data?.episodes ?? [], [detailQuery.data]);
+  // 简介是第三方源的 HTML 片段，转纯文本再判断长度（<p> 标签本身也算字符，不转会误判）
+  const descText = useMemo(() => (videoInfo?.desc ? plainText(videoInfo.desc) : ''), [videoInfo?.desc]);
   const videoTitle = titleParam || videoInfo?.title || '未知视频';
 
   // 当前播放地址：优先取剧集列表中的当前集，其次直连 URL 参数
@@ -97,6 +110,30 @@ function WatchContent() {
     if (episodes.length > 0) return Math.min(Math.max(indexParam, 0), episodes.length - 1);
     return indexParam;
   }, [episodes, indexParam]);
+
+  // 实际生效的秒数：本剧覆盖 > 全局默认。
+  // 首集不跳片头——不少采集站第一集是预告/花絮，固定秒数对它不成立。
+  const introSec = currentIndex > 0 ? (skipOverride?.introSec ?? store.skipIntroSec) : 0;
+  const outroSec = skipOverride?.outroSec ?? store.skipOutroSec;
+
+  // 读完本剧配置后再把值覆盖上去（首次进页面只有全局默认可用，跳转稍晚也不会漏）
+  useEffect(() => {
+    let cancelled = false;
+    if (!sourceKey || !vodId) {
+      setSkipOverride(null);
+      return;
+    }
+    getSkipConfig(sourceKey, vodId)
+      .then((entry) => {
+        if (!cancelled) {
+          setSkipOverride(entry ? { introSec: entry.introSec, outroSec: entry.outroSec } : null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceKey, vodId]);
 
   const goEpisode = useCallback(
     (index: number) => {
@@ -149,6 +186,29 @@ function WatchContent() {
     },
     [sourceKey, vodId, currentIndex, currentUrl]
   );
+
+  // 跳过片头/片尾：写本剧配置（只落本地 IndexedDB），并立即生效
+  const handleApplySkip = useCallback(
+    (nextIntro: number, nextOutro: number) => {
+      setSkipOverride({ introSec: nextIntro, outroSec: nextOutro });
+      if (sourceKey && vodId) {
+        saveSkipConfig(sourceKey, vodId, nextIntro, nextOutro).catch(() => {});
+      }
+    },
+    [sourceKey, vodId]
+  );
+
+  const handleResetSkip = useCallback(() => {
+    setSkipOverride(null);
+    if (sourceKey && vodId) clearSkipConfig(sourceKey, vodId).catch(() => {});
+  }, [sourceKey, vodId]);
+
+  // 播放器里点了「撤销」：把本剧片头关掉，下次进来自动跳不会再发生
+  const handleUndoIntro = useCallback(() => {
+    const nextOutro = skipOverride?.outroSec ?? store.skipOutroSec;
+    setSkipOverride({ introSec: 0, outroSec: nextOutro });
+    if (sourceKey && vodId) saveSkipConfig(sourceKey, vodId, 0, nextOutro).catch(() => {});
+  }, [sourceKey, vodId, skipOverride, store.skipOutroSec]);
 
   // 自动连播的 800ms 延迟切集要在卸载时取消，避免离开页面后跳转
   const autoNextTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -248,6 +308,9 @@ function WatchContent() {
                   onTimeUpdate={handleProgress}
                   onPause={handleProgress}
                   onEnded={handleEnded}
+                  introSec={introSec}
+                  outroSec={outroSec}
+                  onUndoIntro={handleUndoIntro}
                   onRequestSwitchSource={() => setFailedSignal((n) => n + 1)}
                 />
               ) : (
@@ -291,8 +354,19 @@ function WatchContent() {
                 {videoInfo?.director && <span>导演 {videoInfo.director}</span>}
                 {episodes.length > 0 && <span>共 {episodes.length} 集</span>}
               </div>
-              {/* 简介来自第三方源的 HTML 片段，直接渲染会把 "<p>" 当正文显示出来，这里转纯文本 */}
-              {videoInfo?.desc && <p className="g-desc">{plainText(videoInfo.desc)}</p>}
+              {/* 简介默认限高 3~4 行保住首屏；超长的给一个「展开」，不要让人对着半截文字猜结局 */}
+              {descText && (
+                <p className={cn('g-desc', descOpen && 'open')}>{descText}</p>
+              )}
+              {descText.length > 96 && (
+                <button
+                  type="button"
+                  className="g-desc-toggle"
+                  onClick={() => setDescOpen((v) => !v)}
+                >
+                  {descOpen ? '收起简介' : '展开简介'}
+                </button>
+              )}
 
               <div className="g-acts">
                 <button
@@ -323,6 +397,17 @@ function WatchContent() {
                   />
                   自动连播
                 </label>
+                {/* 跳过片头/片尾：值按「源+剧」存在本地，改一次本剧全部剧集生效 */}
+                <SkipConfigButton
+                  introSec={introSec}
+                  outroSec={outroSec}
+                  hasOverride={skipOverride !== null}
+                  introDisabledHint={
+                    currentIndex === 0 ? '当前是第 1 集，片头跳过对首集不生效（首集常是预告/花絮）。' : undefined
+                  }
+                  onApply={handleApplySkip}
+                  onReset={handleResetSkip}
+                />
               </div>
             </div>
           </div>

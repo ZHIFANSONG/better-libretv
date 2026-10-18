@@ -83,6 +83,16 @@ export function SwitchSourceModal({
     // 关闭弹窗时中止在途请求：否则 N 个源的搜索 + N 个详情测速会继续占用网络与后端
     const controller = new AbortController();
 
+    /*
+     * 调用方已经把「换源卡」测过的一轮结果传进来了：直接拿来用，不再重跑一遍。
+     * 只有在没有任何候选时才从头搜索 —— 否则打开弹窗会看到缩略图先空一下、延迟数字
+     * 重新从 0 开始跳，白等一轮。
+     */
+    if (initialCandidates && initialCandidates.length > 0) {
+      setPhase('done');
+      return () => controller.abort();
+    }
+
     collectSourceCandidates({
       sources,
       title: currentTitle,

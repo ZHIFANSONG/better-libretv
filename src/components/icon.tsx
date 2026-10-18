@@ -24,7 +24,8 @@ export type IconName =
   | 'link'
   | 'alert'
   | 'gear'
-  | 'home';
+  | 'home'
+  | 'skip';
 
 const PATHS: Record<IconName, ReactNode> = {
   close: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />,
@@ -81,6 +82,9 @@ const PATHS: Record<IconName, ReactNode> = {
   check: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />,
   arrowDown: (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+  ),
+  skip: (
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5v14l9-7-9-7zM16 5v14M20 5v14" />
   ),
   undo: (
     <path

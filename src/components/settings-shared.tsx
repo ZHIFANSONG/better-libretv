@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { cn, formatDisableTtl } from '@/lib/utils';
 import { isInDisabledSubscription, useAppStore } from '@/lib/store';
 import { useToast } from './toast';
@@ -148,6 +148,60 @@ export function SelectRow({
         ariaLabel={label}
         className="shrink-0 [&>button]:!py-1.5 [&>button]:!pl-2.5 [&>button]:!pr-2 [&>button]:text-xs"
       />
+    </div>
+  );
+}
+
+/**
+ * 设置行数字输入：秒数这类小整数用它，比下拉更自由、比滑杆更精确。
+ * 失焦时才夹紧到 [min,max] 并提交——边输入边夹紧会把「9」直接改成最小值，没法打 90。
+ */
+export function NumberField({
+  value,
+  min = 0,
+  max = 600,
+  step = 5,
+  unit,
+  ariaLabel,
+  onChange,
+}: {
+  value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  ariaLabel: string;
+  onChange: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  // 外部值变化（如恢复默认）时同步草稿
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commit = () => {
+    const n = Math.round(Number(draft));
+    const next = Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : value;
+    setDraft(String(next));
+    if (next !== value) onChange(next);
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <input
+        type="number"
+        inputMode="numeric"
+        className="input w-16 !py-1.5 text-center text-xs"
+        aria-label={ariaLabel}
+        min={min}
+        max={max}
+        step={step}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        }}
+      />
+      {unit && <span className="text-xs text-faint">{unit}</span>}
     </div>
   );
 }

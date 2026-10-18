@@ -22,6 +22,10 @@ export interface AppSettings {
   /** 用户是否在设置中主动选择过推荐数据源；为 false 时部署者的 DEFAULT_RECOMMEND_SOURCE 默认值可生效 */
   recommendSourceTouched: boolean;
   autoplayNext: boolean;
+  /** 默认跳过片头秒数；0 = 不跳。可按剧在播放页单独覆盖（存在 IndexedDB） */
+  skipIntroSec: number;
+  /** 默认跳过片尾秒数（提前量）；0 = 不跳 */
+  skipOutroSec: number;
   imageProxyMode: 'direct' | 'proxy' | 'custom';
   /** 用户是否在设置中主动选择过封面图加载方式；为 false 时部署者的 DEFAULT_IMAGE_MODE 默认值可生效 */
   imageProxyModeTouched: boolean;
@@ -303,6 +307,10 @@ export const useAppStore = create<AppState>()(
       recommendSource: 'douban',
       recommendSourceTouched: false,
       autoplayNext: true,
+      // 片头 90s 能盖住绝大多数国产剧片头曲；片尾 30s 是「片尾曲响起来之前」的常见位置。
+      // 两者都只是默认值，播放页可以按剧覆盖，也可以在设置里改成 0 关闭。
+      skipIntroSec: 90,
+      skipOutroSec: 30,
       // 直连优先：豆瓣封面有公共镜像 + 内置代理两级兜底（见 buildImageCandidates），
       // 默认省服务器流量；老用户保持已持久化的选择不受影响。
       // 部署者可用 DEFAULT_IMAGE_MODE=proxy 下发内置代理优先（最稳定，吃服务器流量）
@@ -819,6 +827,8 @@ export const useAppStore = create<AppState>()(
         recommendSource: s.recommendSource,
         recommendSourceTouched: s.recommendSourceTouched,
         autoplayNext: s.autoplayNext,
+        skipIntroSec: s.skipIntroSec,
+        skipOutroSec: s.skipOutroSec,
         imageProxyMode: s.imageProxyMode,
         imageProxyModeTouched: s.imageProxyModeTouched,
         customImageProxy: s.customImageProxy,

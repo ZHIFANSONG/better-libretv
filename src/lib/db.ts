@@ -53,6 +53,23 @@ export interface SegmentMetaEntry {
   lastAccess: number;
 }
 
+/**
+ * 跳过片头/片尾的「按剧记忆」条目。
+ * 键用 `${sourceKey}_${vodId}` 绑定整部剧（不是单集）：标一次，全部剧集生效。
+ * 纯本地数据，不进设置快照、不上传服务端。
+ */
+export interface SkipConfigEntry {
+  /** `${sourceKey}_${vodId}` */
+  key: string;
+  sourceKey: string;
+  vodId: string;
+  /** 片头秒数；0 = 关 */
+  introSec: number;
+  /** 片尾提前秒数；0 = 关 */
+  outroSec: number;
+  updatedAt: number;
+}
+
 export type DownloadStatus = 'waiting' | 'downloading' | 'paused' | 'completed' | 'error';
 
 export interface DownloadTaskEntry {
@@ -77,6 +94,7 @@ export const db = new Dexie('libretv') as Dexie & {
   liveProbe: EntityTable<LiveProbeEntry & { url: string }, 'url'>;
   segmentMeta: EntityTable<SegmentMetaEntry, 'key'>;
   downloads: EntityTable<DownloadTaskEntry, 'id'>;
+  skipConfigs: EntityTable<SkipConfigEntry, 'key'>;
 };
 
 db.version(1).stores({
@@ -96,8 +114,15 @@ db.version(3).stores({
   downloads: 'id, createdAt',
 });
 
+// v4：跳过片头/片尾的按剧记忆（本剧专用的秒数覆盖）
+db.version(4).stores({
+  skipConfigs: 'key, updatedAt',
+});
+
 export const MAX_HISTORY = 100;
 export const MAX_SEARCH_HISTORY = 10;
+/** 跳过配置最多保留的剧集数（按最近修改淘汰） */
+export const MAX_SKIP_CONFIGS = 200;
 
 export async function upsertHistory(entry: Omit<HistoryEntry, 'id'>): Promise<void> {
   const id = `${entry.sourceKey}_${entry.vodId}`;
@@ -161,6 +186,49 @@ export async function saveProgress(sourceKey: string, vodId: string, episodeInde
 
 export async function clearProgress(sourceKey: string, vodId: string, episodeIndex: number): Promise<void> {
   await db.progress.delete(progressKeyOf(sourceKey, vodId, episodeIndex));
+}
+
+// —— 跳过片头/片尾：按剧记忆（纯本地） ——
+
+export function skipKeyOf(sourceKey: string, vodId: string): string {
+  return `${sourceKey}_${vodId}`;
+}
+
+/** 读取本剧的跳过配置；没有记录时返回 null（调用方落到全局默认值） */
+export async function getSkipConfig(sourceKey: string, vodId: string): Promise<SkipConfigEntry | null> {
+  if (!sourceKey || !vodId) return null;
+  try {
+    return (await db.skipConfigs.get(skipKeyOf(sourceKey, vodId))) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** 写入本剧的跳过配置；扫尾清理超量条目，避免无限增长 */
+export async function saveSkipConfig(
+  sourceKey: string,
+  vodId: string,
+  introSec: number,
+  outroSec: number
+): Promise<void> {
+  if (!sourceKey || !vodId) return;
+  await db.skipConfigs.put({
+    key: skipKeyOf(sourceKey, vodId),
+    sourceKey,
+    vodId,
+    introSec: Math.max(0, Math.round(introSec)),
+    outroSec: Math.max(0, Math.round(outroSec)),
+    updatedAt: Date.now(),
+  });
+  const count = await db.skipConfigs.count();
+  if (count > MAX_SKIP_CONFIGS) {
+    const oldest = await db.skipConfigs.orderBy('updatedAt').limit(count - MAX_SKIP_CONFIGS).toArray();
+    await db.skipConfigs.bulkDelete(oldest.map((o) => o.key));
+  }
+}
+
+export async function clearSkipConfig(sourceKey: string, vodId: string): Promise<void> {
+  await db.skipConfigs.delete(skipKeyOf(sourceKey, vodId));
 }
 
 export async function addSearchHistory(text: string): Promise<void> {

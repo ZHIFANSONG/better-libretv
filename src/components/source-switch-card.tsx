@@ -106,14 +106,31 @@ export function SourceSwitchCard({
     return () => controller.abort();
   }, [sources, title, store.yellowFilter]);
 
-  // 首次挂载不自动跑（打开播放页就同时打 N 个源太浪费）；源真的挂了才自动测一次
-  const first = useRef(true);
+  /*
+   * 进页面就自动测一轮。
+   * 早前版本为了省请求，首次挂载只显示「点测速全部」的空状态 —— 用户看到的就是一块
+   * 什么都不能点的装饰卡，正是这次要根治的毛病。延迟要显示出来才有意义，所以默认就测。
+   * 延迟 300ms 再跑，避免和详情/剧集请求抢首屏带宽。
+   */
+  const booted = useRef(false);
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    if (!failedSignal) return;
+    // 注意：dev 下 StrictMode 会把 effect 跑两遍（mount → cleanup → mount），
+    // 所以「已跑过」的标记必须写在定时器里，不能写在调度之前 —— 否则第一遍的
+    // cleanup 会把定时器清掉，第二遍又因为标记已置位直接返回，一轮都不会测。
+    if (booted.current || sources.length === 0) return;
+    const timer = window.setTimeout(() => {
+      booted.current = true;
+      run();
+    }, 300);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sources.length]);
+
+  // 播放中真的失败了：重测一轮（用户需要知道现在哪个源还能用）
+  const failRef = useRef(0);
+  useEffect(() => {
+    if (!failedSignal || failedSignal === failRef.current) return;
+    failRef.current = failedSignal;
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [failedSignal]);
@@ -196,6 +213,8 @@ export function SourceSwitchCard({
         <p className="g-srcidle">
           {sorted.filter((c) => c.ok !== false).length} 个可用 ·{' '}
           {sorted.filter((c) => c.ms !== undefined).length}/{sorted.length} 已测速
+          {/* 搜索没命中/直接报错的源不会进列表，这里交代一句，免得用户以为源被吞了 */}
+          {sources.length > sorted.length && ` · 另有 ${sources.length - sorted.length} 个源没有这部`}
         </p>
       )}
 

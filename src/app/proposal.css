@@ -1236,6 +1236,127 @@
   background: rgba(90, 120, 255, 0.95);
   color: #fff;
 }
+
+/* —— 跳过片头/片尾：动作行按钮 + 就地小弹层 —— */
+.g-skip {
+  position: relative;
+  display: inline-flex;
+}
+/* 已开启时给个极淡的品牌色底，和「上一集/下一集」区分开，又不像主按钮那样抢眼 */
+.g-act.on {
+  border-color: rgba(77, 107, 254, 0.5);
+  color: var(--t1);
+  background: rgba(77, 107, 254, 0.14);
+}
+.g-act.on:hover {
+  border-color: rgba(77, 107, 254, 0.7);
+  background: rgba(77, 107, 254, 0.2);
+}
+.g-skip-pop {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 268px;
+  padding: 14px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--bd);
+  background: rgba(12, 16, 28, 0.96);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+  animation: g-skip-in 0.16s var(--ease);
+}
+:root:not(.dark) .g-skip-pop {
+  background: rgba(255, 255, 255, 0.97);
+}
+@keyframes g-skip-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.g-skip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+.g-skip-row label {
+  font-size: 12.5px;
+  color: var(--t2);
+}
+.g-skip-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.g-skip-input input {
+  width: 62px;
+  padding: 5px 7px;
+  font-size: 12.5px;
+  text-align: center;
+  border-radius: var(--r-sm, 8px);
+  border: 1px solid var(--bd);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--t1);
+  /* 数字输入框的上下箭头在深色小弹层里很碍眼，且点击区域小于 24px 不好按 */
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.g-skip-input input::-webkit-outer-spin-button,
+.g-skip-input input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.g-skip-input input:focus {
+  outline: none;
+  border-color: rgba(77, 107, 254, 0.6);
+}
+.g-skip-input s {
+  font-size: 11.5px;
+  color: var(--t3);
+  text-decoration: none;
+}
+.g-skip-tip {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--t3);
+}
+.g-skip-acts {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.g-skip-btn {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(77, 107, 254, 0.55);
+  background: rgba(77, 107, 254, 0.9);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.2s var(--ease);
+}
+.g-skip-btn:hover {
+  background: rgba(90, 120, 255, 0.95);
+}
+.g-skip-btn.ghost {
+  border-color: var(--bd);
+  background: transparent;
+  color: var(--t2);
+}
+.g-skip-btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--t1);
+}
+/* 窄屏：弹层靠右对齐，避免从屏幕上溢出 */
+@media (max-width: 640px) {
+  .g-skip-pop {
+    left: auto;
+    right: 0;
+    width: min(268px, calc(100vw - 28px));
+  }
+}
 /* 快捷键盘提示（提案 .shortcut） */
 .g-shortcut {
   font-size: 11px;
@@ -1374,7 +1495,11 @@
   line-height: 1.75;
   color: var(--t3);
   margin: 0 0 16px;
-  max-height: 96px;
+  /* 用行数截断而不是 max-height：按高度截会把第 4 行切成半截，看起来像渲染坏了 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
   overflow: hidden;
 }
 /* 图标型动作按钮：正方形，用于次级条与频道信息条 */
@@ -1437,7 +1562,6 @@
   padding: 16px 18px;
 }
 .g-watch .g-info .g-desc {
-  max-height: 72px;
   margin-bottom: 12px;
 }
 /* 选集格子按视口高度伸缩，避免把整页顶下去 */
@@ -1467,6 +1591,13 @@
     top: 74px;
   }
 }
+.g-watch .g-stage {
+  width: 100%;
+  max-width: 100%;
+  max-height: calc(100dvh - 190px);
+  margin-inline: auto;
+}
+
 /*
  * 舞台尺寸：只由「左列有多宽」决定，不再拿视口高度反推宽度。
  *
@@ -1477,20 +1608,49 @@
  * 现在：宽度吃满左列，高度由 aspect-ratio 决定，信息卡往下滚即可；
  * 只有「又宽又矮」时才限高，此时比例让位给可用高度，控制条仍然可见。
  */
-.g-watch .g-stage {
-  width: 100%;
-  max-width: 100%;
-  max-height: calc(100dvh - 190px);
-  margin-inline: auto;
+/*
+ * 信息卡一律纵向排布：标签 → 元信息 → 简介 → 动作条。
+ *
+ * 曾试过「简介在左、动作条在右」的双列网格（>1141px），结果是灾难：卡片宽 = 视口 − 657，
+ * 1440 时只有 783px，减掉动作条的 541px 和间距，文字列只剩 183px —— 简介被挤成每行十来个字
+ * 的竖条，比多占几十像素高度难看得多。动作条五颗按钮单行就要 541px，任何「并排」都必然
+ * 牺牲文字列，所以这里不再做并排，需要矮的时候靠简介 clamp + 展开按钮解决。
+ */
+.g-watch .g-info .g-acts {
+  justify-content: flex-start;
 }
-
+/* 简介展开态：解除限高。默认态靠上面的 max-height 卡住，展开按钮只在超长时出现 */
+.g-watch .g-info .g-desc.open {
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+.g-desc-toggle {
+  display: inline-block;
+  margin: -6px 0 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--t3);
+  cursor: pointer;
+  transition: color 0.2s var(--ease);
+}
+.g-desc-toggle:hover {
+  color: var(--t1);
+}
+@media (max-width: 900px) {
+  .g-watch .g-info .g-desc {
+    margin-bottom: 12px;
+  }
+}
 @media (max-height: 860px) {
   .g-watch .g-info {
     padding: 12px 14px;
   }
   .g-watch .g-info .g-desc {
-    max-height: 40px;
-    margin-bottom: 10px;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
   }
   .g-watch .g-card {
     padding: 12px;

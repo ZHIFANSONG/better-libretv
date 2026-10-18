@@ -40,6 +40,18 @@ interface PlayerShellProps {
   onPause?: (position: number, duration: number) => void;
   /** 恢复策略判源不可用（重试耗尽/格式硬失败）时回调：父级弹出换源面板 */
   onRequestSwitchSource?: (reason: string) => void;
+  /**
+   * 片头跳过秒数（0 = 不跳）。由父级按「本剧配置 → 全局默认」解析后传入：
+   * 播放器不关心秒数从哪来，只负责在起播后跳到这个位置。
+   */
+  introSec?: number;
+  /**
+   * 片尾跳过秒数（0 = 不跳）：播到 duration - outroSec 就当作本集结束。
+   * 由父级决定这是「真的播完」还是「提前跳片尾」——handleEnded 会把位置一起带出去。
+   */
+  outroSec?: number;
+  /** 用户点了「撤销」把片头退回去：父级可借此把本剧片头秒数清掉，下次不再跳 */
+  onUndoIntro?: () => void;
 }
 
 /**
@@ -115,6 +127,9 @@ export function PlayerShell({
   onEnded,
   onPause,
   onRequestSwitchSource,
+  introSec = 0,
+  outroSec = 0,
+  onUndoIntro,
 }: PlayerShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -122,18 +137,23 @@ export function PlayerShell({
   const hlsRef = useRef<Hls | null>(null);
   const [error, setError] = useState('');
   const [hint, setHint] = useState('');
+  // 片头跳过后的撤销入口倒计时（秒）；>0 时显示「已跳过片头 Ns / 撤销」
+  const [undoIntroSec, setUndoIntroSec] = useState(0);
   // 起播前的品牌占位图（沿用旧版 nomedia 素材），实际开始播放后隐藏
   const [showPoster, setShowPoster] = useState(true);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoIntroTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 始终持有最新 props/回调，避免重建播放器
   const propsRef = useRef({
     url, title, adFilter, autoplayNext, episodeKey, nextUrl, nextEpisodeKey,
     getRestorePosition, onTimeUpdate, onEnded, onPause, onRequestSwitchSource,
+    introSec, outroSec, onUndoIntro,
   });
   propsRef.current = {
     url, title, adFilter, autoplayNext, episodeKey, nextUrl, nextEpisodeKey,
     getRestorePosition, onTimeUpdate, onEnded, onPause, onRequestSwitchSource,
+    introSec, outroSec, onUndoIntro,
   };
 
   // 跨集共享、每次换集重置的播放链路状态
@@ -153,6 +173,10 @@ export function PlayerShell({
   const recoveryRef = useRef<PlaybackRecovery | null>(null);
   // 自然播完标记，卸载时不回写进度（避免覆盖「已看完」记录）
   const endedRef = useRef(false);
+  // 片头只跳一次：恢复进度、用户手动 seek 回来都不再触发
+  const introSkippedRef = useRef(false);
+  // 片尾只触发一次：提前跳后 timeupdate 还会继续来，必须挡住
+  const outroFiredRef = useRef(false);
 
   // 是否走原生全屏：Apple 触屏设备（iPhone / iPad / iPadOS 桌面 UA）才需要，
   // 桌面端保持 Artplayer 自带的元素全屏，行为不变
@@ -309,6 +333,10 @@ export function PlayerShell({
     playbackStartedRef.current = false;
     videoErrorRetryUsedRef.current = false;
     restoredRef.current = false;
+    introSkippedRef.current = false;
+    outroFiredRef.current = false;
+    setUndoIntroSec(0);
+    if (undoIntroTimerRef.current) clearTimeout(undoIntroTimerRef.current);
     lastPrefetchEnsureRef.current = 0;
     recoveryRef.current = new PlaybackRecovery();
     // 换集时清掉上一集的预取窗口，避免带宽被旧集占用
@@ -330,6 +358,9 @@ export function PlayerShell({
     playbackStartedRef.current = false;
     videoErrorRetryUsedRef.current = false;
     restoredRef.current = false;
+    introSkippedRef.current = false;
+    outroFiredRef.current = false;
+    setUndoIntroSec(0);
     recoveryRef.current = new PlaybackRecovery();
     endedRef.current = false;
 
@@ -376,56 +407,119 @@ export function PlayerShell({
     });
     artRef.current = art;
 
-    // —— Apple 触屏设备的原生全屏 ——
-    // 全局 Artplayer 会在首次 loadedmetadata 时用 Object.defineProperty 给实例定义 fullscreen
-    // （getter 读 Fullscreen API、setter 调 requestFullscreen）。用同名 configurable defineProperty
-    // 覆盖它，全屏按钮、设置项、快捷键 f 都会自动走这一层，不必逐个改控件的点击处理器。
-    // 覆盖时机：constructor 的 inner 初始化在文档就绪后立即执行，覆盖仍落在首次 loadedmetadata 之前。
-    if (isAppleTouch) {
-      const player = art as unknown as {
-        fullscreen: boolean;
-        fullscreenWeb: boolean;
+    /*
+     * —— 全屏兜底（所有平台都装）——
+     *
+     * 读 dist/artplayer.js 才看清的两个坑：
+     * 1. Artplayer 的 fullscreen 存取器要等**首次 loadedmetadata** 才定义（It(t) 里的
+     *    once("video:loadedmetadata")）。首帧迟迟不来时（流卡住、广告、采集站抽风），
+     *    art.fullscreen = true 就是空操作 —— 用户看到的就是「点了全屏没反应」。
+     * 2. 它用**不可配置**的 defineProperty 写实例属性，会顶掉我们先装好的同名覆盖，
+     *    所以每次 loadedmetadata 之后都要补装一次，否则覆盖活不过第一帧。
+     *
+     * 这层覆盖按优先级处理：系统播放器全屏（iOS/iPadOS）→ 元素全屏（桌面）→
+     * 最后才落回 Artplayer 自己的实现（它会弹「不支持全屏」）。
+     * 全屏按钮、设置面板、快捷键 f、双击画面都走 art.fullscreen，改一处即可全覆盖。
+     */
+    type FullscreenVideo = HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+      webkitExitFullscreen?: () => void;
+      webkitDisplayingFullscreen?: boolean;
+    };
+
+    // 装覆盖之前 Artplayer 自己的存取器（loadedmetadata 之后才有，此前是 undefined）
+    let artDescriptor: PropertyDescriptor | undefined;
+    // 我们最近一次装上去的 getter，用来判断覆盖是否已被 Artplayer 顶掉
+    let installedGetter: (() => boolean) | undefined;
+
+    /** 请求/退出**元素全屏**（挂在播放器容器上）。返回是否已经接管，false 表示环境不支持。 */
+    const requestElementFullscreen = (on: boolean): boolean => {
+      const el = (art.template?.$player ?? containerRef.current) as HTMLElement | null;
+      if (!el) return false;
+      if (on) {
+        if (typeof el.requestFullscreen !== 'function') return false;
+        void el
+          .requestFullscreen()
+          .then(() => {
+            // 这条路径绕过了 Artplayer 的监听器（metadata 未到时不装），手动补一次图标状态
+            try { art.emit('fullscreen', true); } catch { /* 忽略 */ }
+          })
+          .catch(() => { /* 浏览器拒绝（无手势 / 被策略拦）：保持原状态 */ });
+        return true;
+      }
+      if (!document.fullscreenElement) return false;
+      void document.exitFullscreen?.().catch(() => { /* 忽略 */ });
+      return true;
+    };
+
+    const installFullscreenOverride = () => {
+      const player = art as unknown as { fullscreen: boolean; fullscreenWeb: boolean };
+      const current = Object.getOwnPropertyDescriptor(player, 'fullscreen');
+      // 我们的 getter 已经被 Artplayer 顶掉：把它的真存取器记成落回目标
+      if (current && current.get !== installedGetter) artDescriptor = current;
+
+      const getter = (): boolean => {
+        const v = art.video as FullscreenVideo | undefined;
+        if (v?.webkitDisplayingFullscreen) return true;
+        const el = (art.template?.$player ?? null) as HTMLElement | null;
+        if (el && document.fullscreenElement === el) return true;
+        return artDescriptor?.get ? !!artDescriptor.get.call(player) : false;
       };
-      // 记下被覆盖前的原始存取器（那才是 Fullscreen API 的正路），
-      // 某些设备其实没有原生全屏能力，这时必须落回去，否则就是「点了没反应」。
-      const original = Object.getOwnPropertyDescriptor(art, 'fullscreen');
+      installedGetter = getter;
 
       Object.defineProperty(player, 'fullscreen', {
         configurable: true,
         enumerable: true,
-        get: () => {
-          const v = art.video as HTMLVideoElement & { webkitDisplayingFullscreen?: boolean };
-          if (!canUseNativeFullscreen(art.video)) {
-            return original?.get ? !!original.get.call(player) : !!v?.webkitDisplayingFullscreen;
-          }
-          return !!v?.webkitDisplayingFullscreen;
-        },
+        get: getter,
         set: (on: boolean) => {
-          const v = art.video as HTMLVideoElement;
-          // 没有 webkitEnterFullscreen 的设备（部分 iPadOS 浏览器外壳 / 桌面 Safari）走回原生 Fullscreen API
-          if (!canUseNativeFullscreen(v)) {
-            original?.set?.call(player, on);
+          const v = art.video as FullscreenVideo | undefined;
+          // 已经在系统播放器全屏里：只处理退出（iOS 没有给 JS 的退出接口，交给系统按钮）
+          if (v?.webkitDisplayingFullscreen) {
+            if (!on) v.webkitExitFullscreen?.();
             return;
           }
-          if (on) {
-            // 已经在全屏里再点一次：交给系统/浏览器自己的关闭逻辑，别重复进去
-            if ((v as HTMLVideoElement & { webkitDisplayingFullscreen?: boolean }).webkitDisplayingFullscreen) return;
-            // 网页全屏状态先退出，否则原生全屏退出后会落回「网页全屏」而不是正常页面
-            if (player.fullscreenWeb) player.fullscreenWeb = false;
+          if (document.fullscreenElement) {
+            if (!on) void document.exitFullscreen?.().catch(() => { /* 忽略 */ });
+            return;
+          }
+          if (!on) return;
+          // 网页全屏先退掉，否则原生全屏退出后会落回「网页全屏」而不是正常页面
+          try { if (player.fullscreenWeb) player.fullscreenWeb = false; } catch { /* 忽略 */ }
+          // Apple 触屏：优先交给系统播放器（可旋转、可画中画、省电、硬解直通）
+          if (isAppleTouch && canUseNativeFullscreen(v)) {
             enterNativeFullscreen(v);
+            // iOS 偶发静默失败（不进系统全屏也不报错）：300ms 后仍没进去就用元素全屏兜底
+            window.setTimeout(() => {
+              if (!(v as FullscreenVideo | undefined)?.webkitDisplayingFullscreen) requestElementFullscreen(true);
+            }, 300);
             return;
           }
-          /*
-           * 退出：iOS 的原生全屏没有给 JS 的退出接口，只能点系统播放器左上角「完成」。
-           * 但桌面 Safari 走的是元素全屏，必须真的退出来，否则再点一次按钮毫无反应。
-           * 这里把两条路都试一遍：先 webkitExitFullscreen(有的实现有)，再 exitFullscreen。
-           */
-          const exitable = v as HTMLVideoElement & { webkitExitFullscreen?: () => void };
-          if (exitable.webkitExitFullscreen) exitable.webkitExitFullscreen();
-          else if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+          if (requestElementFullscreen(true)) return;
+          artDescriptor?.set?.call(player, on);
         },
       });
-    }
+    };
+
+    installFullscreenOverride();
+    /*
+     * 元素全屏的进出事件由我们（或 Artplayer）接管，必须把状态同步到播放器：
+     * .art-fullscreen 类管控件图标，art.state 管内部状态机。
+     * metadata 没到时 Artplayer 根本没装这个监听，全靠这里补。
+     */
+    const syncFullscreenState = () => {
+      const el = art.template?.$player as HTMLElement | undefined;
+      const on = !!document.fullscreenElement && document.fullscreenElement === el;
+      try {
+        if (on) {
+          art.state = 'fullscreen';
+          el?.classList.add('art-fullscreen');
+        } else {
+          el?.classList.remove('art-fullscreen');
+        }
+      } catch { /* 忽略 */ }
+      try { art.emit('fullscreen', !!document.fullscreenElement); } catch { /* 忽略 */ }
+    };
+    document.addEventListener('fullscreenchange', syncFullscreenState);
 
     art.on('video:loadedmetadata', () => {
       // ArtPlayer 运行时支持 title 选项（类型定义未覆盖），用于界面标题展示
@@ -433,6 +527,12 @@ export function PlayerShell({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (art as any).title = propsRef.current.title;
       } catch { /* 忽略 */ }
+      /*
+       * Artplayer 就是在这一帧用不可配置的 defineProperty 重写 fullscreen 的，
+       * 我们的覆盖会被顶掉 —— 必须在这里补装一次，否则首帧之后就退回原生实现，
+       * 流卡住时又变成「点了全屏没反应」。
+       */
+      installFullscreenOverride();
     });
 
     art.on('video:playing', () => {
@@ -441,6 +541,24 @@ export function PlayerShell({
       // 仅在媒体真正恢复（有分片进入 buffer）后清错误遮罩：
       // 否则「视频轨挂了、音频轨先播出来」时会清掉遮罩，留下黑屏假死态
       if (mediaHealthyRef.current) setError('');
+      // 片头跳过：只在第一次真正起播时执行一次。
+      // 已经因为恢复进度/手动 seek 越过片头的（currentTime >= intro）不跳，
+      // 否则会把用户从 40 分钟处拽回第 90 秒。
+      if (!introSkippedRef.current) {
+        introSkippedRef.current = true;
+        const intro = propsRef.current.introSec || 0;
+        const total = art.duration || 0;
+        // 上限 min(180s, 总时长×30%)：短片/花絮不会被整段吃掉
+        const cap = Math.min(180, total > 0 ? total * 0.3 : 180);
+        const target = Math.min(intro, cap);
+        if (target >= 5 && art.currentTime < target) {
+          art.currentTime = target;
+          setUndoIntroSec(Math.round(target));
+          // 撤销窗口 12s：够看清、又不至于一直挂在播放器上
+          if (undoIntroTimerRef.current) clearTimeout(undoIntroTimerRef.current);
+          undoIntroTimerRef.current = setTimeout(() => setUndoIntroSec(0), 12_000);
+        }
+      }
     });
     art.on('video:error', () => {
       mediaHealthyRef.current = false;
@@ -456,6 +574,19 @@ export function PlayerShell({
     });
     art.on('video:timeupdate', () => {
       const now = Date.now();
+      // 片尾跳过：播到 duration - outroSec 就当作本集结束。
+      // 只触发一次（跳完 currentTime 仍会继续往前走），并且要求已真正起播，
+      // 否则 seek 恢复阶段 duration 可能还是 NaN。
+      if (!outroFiredRef.current) {
+        const outro = propsRef.current.outroSec || 0;
+        const total = art.duration || 0;
+        if (outro > 0 && total > outro + 5 && art.currentTime >= total - outro) {
+          outroFiredRef.current = true;
+          showHint(`已跳过片尾 ${outro}s`);
+          endedRef.current = true;
+          propsRef.current.onEnded?.();
+        }
+      }
       if (now - lastSave > 5000) {
         lastSave = now;
         propsRef.current.onTimeUpdate?.(art.currentTime, art.duration);
@@ -581,6 +712,7 @@ export function PlayerShell({
       }
       document.removeEventListener('keydown', shortcuts);
       document.removeEventListener('visibilitychange', saveOnHide);
+      document.removeEventListener('fullscreenchange', syncFullscreenState);
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
       el?.removeEventListener('touchstart', onTouchStart);
       el?.removeEventListener('touchend', onTouchEnd);
@@ -631,8 +763,9 @@ export function PlayerShell({
           }}
         />
       )}
+      {/* 覆盖层必须抬到 .art-video（z-index:10）之上，否则错误遮罩与撤销按钮会被视频层挡住点不到 */}
       {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80">
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/80">
           <p className="text-danger text-sm">{error}</p>
           <div className="flex items-center gap-2">
             {/* 只给「重新加载」等于让用户自己满页面找换源入口；这里直接引导到右侧换源卡 */}
@@ -654,8 +787,30 @@ export function PlayerShell({
         </div>
       )}
       {hint && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-sm px-3 py-1.5 rounded-full pointer-events-none animate-fade-in">
+        <div className="absolute z-20 top-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-sm px-3 py-1.5 rounded-full pointer-events-none animate-fade-in">
           {hint}
+        </div>
+      )}
+      {/*
+        片头跳过的撤销入口：独立于 hint（hint 2.5s 就消失，撤销要留得更久），
+        且只在「刚跳完片头」这一小段时间里出现，之后收起，不占播放器常驻空间。
+      */}
+      {undoIntroSec > 0 && (
+        <div className="absolute z-20 left-4 bottom-16 flex items-center gap-2 bg-black/70 text-white text-xs px-2.5 py-1.5 rounded-full animate-fade-in">
+          <span>已跳过片头 {undoIntroSec}s</span>
+          <button
+            type="button"
+            className="underline decoration-dotted underline-offset-2 hover:text-white/80"
+            onClick={() => {
+              const art = artRef.current;
+              if (art) art.currentTime = 0;
+              introSkippedRef.current = true;
+              setUndoIntroSec(0);
+              propsRef.current.onUndoIntro?.();
+            }}
+          >
+            撤销
+          </button>
         </div>
       )}
     </div>
