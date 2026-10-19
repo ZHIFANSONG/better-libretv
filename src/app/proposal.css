@@ -1964,6 +1964,14 @@
 :root:not(.dark) .g-qb-unknown {
   background: rgba(15, 23, 42, 0.06);
 }
+/* 浅色下 HD 档必须换深色文字：默认的 #9dbdfb 是给暗背景配的，压在近白卡片上几乎看不见 */
+:root:not(.dark) .g-qb-hd {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+:root:not(.dark) .g-qb-idle {
+  color: var(--t4);
+}
 
 /* 搜索结果页内播放器已移除（v14）：点来源胶囊直接进 /watch，播放器只在播放页出现。 */
 /* ===== 详情弹窗：来源切换条 ===== */
