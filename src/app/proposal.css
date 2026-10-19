@@ -1095,6 +1095,145 @@
   color: rgba(255, 255, 255, 0.45);
 }
 
+/*
+ * ===== 控制栏「视频信息」面板（m06825） =====
+ * 挂在 $player 里（和画质胶囊同一坐标系），所以能活在网页全屏内。
+ * 起点在画质胶囊下方：那个胶囊占 top:10px + 26px 高，这里从 44px 起排，
+ * 两者都在右上角，不能让面板盖住「现在在放几 P」。
+ */
+.g-vstats {
+  position: absolute;
+  top: 44px;
+  right: 10px;
+  z-index: 90;
+  /* 288 而不是 256：再窄一点「浏览器估算上限 / hls ABR」这类后缀就会折行，多占一整行 */
+  width: min(288px, calc(100% - 20px));
+  /*
+   * 上界卡在底部控制条之上：$player 高 - 顶部 44px - 控制条 46px - 8px 呼吸位。
+   * 实测控制条顶边在 $player 内 388px（440 高时），留 8px 才不会压住播放/全屏按钮，
+   * 否则面板一开用户连「关闭」以外的控件都点不到。内容超出时面板内部滚动，见 .g-vstats-body。
+   */
+  max-height: calc(100% - 100px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(18, 20, 26, 0.94);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 11.5px;
+  line-height: 1.35;
+  /* 面板里的点击不能冒到画面上触发暂停 */
+  pointer-events: auto;
+}
+.g-vstats-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.g-vstats-head strong {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.g-vstats-copy,
+.g-vstats-x {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+.g-vstats-copy:hover,
+.g-vstats-x:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.g-vstats-x {
+  padding: 4px 6px;
+  font-size: 13px;
+}
+.g-vstats-body {
+  padding: 5px 10px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.g-vstats-group + .g-vstats-group {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+.g-vstats-gtitle {
+  display: block;
+  margin-bottom: 1px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.42);
+}
+.g-vstats-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  /* 不留上下内边距：行数固定十几行，每行省 2px 合起来就是一行的高度，
+     面板才能在不滚动的情况下把「网络类型」这最后一行也放进 440px 的播放器里 */
+  padding: 0;
+}
+.g-vstats-k {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.55);
+}
+.g-vstats-v {
+  flex: 1 1 auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.94);
+  word-break: break-word;
+}
+.g-vstats-v em {
+  margin-left: 5px;
+  font-style: normal;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.4);
+}
+/* 告警只做左侧一点橘色，不做整行变色：面板要能长时间盯着看，不能刺眼 */
+.g-vstats-row.warn .g-vstats-v {
+  color: #f0b46a;
+}
+.g-vstats-empty {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.45);
+}
+/*
+ * 窄屏：手机上的播放器只有 ~190px 高，按桌面那套「避开控制条」的算法面板只剩 90px，
+ * 一屏看得到两行、还夹在画面上没法读。所以窄屏改成整块盖住画面（顶部有关闭按钮），
+ * 内容在面板内部滚动，读完关掉继续看。
+ */
+@media (max-width: 560px) {
+  .g-vstats {
+    inset: 0;
+    width: auto;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    font-size: 12px;
+  }
+  .g-vstats-head {
+    padding: 8px 8px 8px 12px;
+  }
+  .g-vstats-body {
+    flex: 1 1 auto;
+    padding: 8px 12px 12px;
+  }
+}
+
 /* 剧集面板里的网格（提案 .eps 是 6 列） */
 .g-eps {
   display: grid;

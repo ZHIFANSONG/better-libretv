@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Artplayer from 'artplayer';
 import Hls, { type HlsConfig } from 'hls.js';
 
@@ -13,6 +14,29 @@ import {
 import { loadCacheSettings } from '@/lib/video-cache';
 import { formatTime } from '@/lib/utils';
 import { qualityLabel } from '@/lib/quality';
+import { copyToClipboard } from '@/lib/clipboard';
+import {
+  bufferedAheadOf,
+  buildStatsGroups,
+  networkInput,
+  statsToText,
+  type NetworkInformationLike,
+  type PlaybackStatsInput,
+  type StatsGroup,
+} from '@/lib/playback-stats';
+
+/**
+ * 控制栏「视频信息」按钮图标：圆圈 + 竖线 + 点。
+ * 每个图形都写死自己的 fill/stroke，避免被 Artplayer 的
+ * `.art-video-player svg{fill:var(--art-font-color)}` 灌成实心圆。
+ */
+const VSTATS_ICON = [
+  '<svg viewBox="0 0 22 22" width="22" height="22" xmlns="http://www.w3.org/2000/svg">',
+  '<circle cx="11" cy="11" r="8.4" fill="none" stroke="currentColor" stroke-width="1.7"/>',
+  '<path d="M11 10.1v5.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>',
+  '<circle cx="11" cy="6.9" r="1.05" fill="currentColor" stroke="none"/>',
+  '</svg>',
+].join('');
 
 /**
  * 播放器外壳：ArtPlayer + hls.js（旧版 player.js 的 React 化）。
@@ -253,6 +277,30 @@ export function PlayerShell({
   };
 
   /**
+   * —— 控制栏「视频信息」面板 ——
+   *
+   * 用户诉求：播放时能直接看到码率/帧率/分辨率/网络状况，而不是只有一个「几 P」。
+   * 面板内容是纯计算（见 src/lib/playback-stats.ts），这里只负责取数、渲染与定时刷新。
+   *
+   * 为什么不用 Artplayer 自带的 art.info：它的行标题是写死的英文 i18n key，
+   * 也塞不进分组、复制和小字注解；版式我们可以直接照搬（右上角浮层）。
+   */
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [statsRows, setStatsRows] = useState<StatsGroup[]>([]);
+  const [statsCopied, setStatsCopied] = useState(false);
+  // 帧率采样基线：{ 上一次采样时刻, 累计出帧数 }。帧率只能靠两次采样的差值算，
+  // 所以基线要和面板同生共死——面板关掉就清空，免得隔了十分钟还在拿旧差值当帧率。
+  const statsFrameRef = useRef<{ at: number; total: number } | null>(null);
+  // 控件在「创建播放器」那个只跑一次的 effect 里注册，闭包会永远停在首帧的 statsOpen，
+  // 所以点击回调必须走 ref 转一手，才能拿到最新的 toggleStats。
+  const toggleStatsRef = useRef<() => void>(() => {});
+  /*
+   * portal 目标必须在客户端渲染阶段才能确定（art.template.$player 是 Artplayer 建出来的）。
+   * 用 state 而不是直接读 ref：ref 变化不触发重渲染，面板打开后关掉播放器重建会指向旧节点。
+   */
+  const [statsPortalEl, setStatsPortalEl] = useState<HTMLElement | null>(null);
+
+  /**
    * —— 控制栏画质菜单 ——
    *
    * 画质信息只在 m3u8 内部，用户原来在播放器上完全看不到「现在放的是几 P」，
@@ -275,12 +323,121 @@ export function PlayerShell({
   } | null>(null);
   const qualityMenuDocHandlerRef = useRef<((e: MouseEvent) => void) | null>(null);
 
+  /**
+   * 采样一次播放统计。任何一项取不到都不抛出——面板宁可少一行，也不能因为
+   * 某个浏览器没有 getVideoPlaybackQuality 就整块不显示。
+   *
+   * 帧率的取法：清单里没写 FRAME-RATE（采集站常态）时，用「两次采样之间实际出了多少帧」
+   * 反推。单次 getVideoPlaybackQuality 只有累计值，没有时间基线就算不出速率，
+   * 所以第一次采样只记基线，第二次起才有「实测帧率」这一行。
+   */
+  const collectStats = (): StatsGroup[] => {
+    const art = artRef.current;
+    const video = art?.video as HTMLVideoElement | undefined;
+    if (!video) return [];
+
+    let droppedFrames: number | undefined;
+    let totalFrames: number | undefined;
+    try {
+      const quality = video.getVideoPlaybackQuality?.();
+      if (quality) {
+        droppedFrames = quality.droppedVideoFrames;
+        totalFrames = quality.totalVideoFrames;
+      }
+    } catch { /* 个别浏览器抛错：丢帧行隐藏即可，不影响其它行 */ }
+
+    let frameRateMeasured: number | undefined;
+    if (Number.isFinite(totalFrames)) {
+      const total = totalFrames as number;
+      const now = performance.now();
+      const prev = statsFrameRef.current;
+      if (prev && now - prev.at > 500 && total > prev.total) {
+        const fps = ((total - prev.total) * 1000) / (now - prev.at);
+        // 采样窗口太短时抖动极大（可能算到 120fps），限幅到 1~120 之外视为噪声丢弃
+        if (fps >= 1 && fps <= 120) frameRateMeasured = fps;
+      }
+      statsFrameRef.current = { at: now, total };
+    }
+
+    const hls = hlsRef.current;
+    const levels = hls?.levels ?? [];
+    const index = hls ? hls.currentLevel : -1;
+    const level = index >= 0 ? levels[index] : undefined;
+
+    const connection = (navigator as unknown as { connection?: NetworkInformationLike }).connection;
+    const input: PlaybackStatsInput = {
+      width: video.videoWidth,
+      height: video.videoHeight,
+      duration: video.duration,
+      currentTime: video.currentTime,
+      bufferedAhead: bufferedAheadOf(video),
+      droppedFrames,
+      totalFrames,
+      frameRateMeasured,
+      ...networkInput(connection),
+    };
+    if (level) {
+      input.level = {
+        levelIndex: index,
+        levelCount: levels.length,
+        bitrate: level.bitrate,
+        // realBitrate 是「该档实际放了多少字节 / 多少秒」，0 表示还没测到，退回带宽估算
+        measuredBitrate: level.realBitrate > 0 ? level.realBitrate : hls?.bandwidthEstimate,
+        width: level.width,
+        height: level.height,
+        frameRate: level.frameRate,
+        videoCodec: level.videoCodec,
+        audioCodec: level.audioCodec,
+      };
+    }
+    return buildStatsGroups(input);
+  };
+
+  const toggleStats = () => {
+    // 基线每次开关都重置：重新打开时要从「这一刻」重新算帧率，
+    // 否则会拿面板关闭前那半分钟的总帧数差当分子，算出一个毫无意义的数
+    statsFrameRef.current = null;
+    if (statsOpen) {
+      setStatsOpen(false);
+      return;
+    }
+    setStatsRows(collectStats());
+    setStatsOpen(true);
+  };
+
+  toggleStatsRef.current = toggleStats;
+
+  const copyStats = async () => {
+    const text = statsToText(statsRows, propsRef.current.title);
+    const ok = await copyToClipboard(text);
+    showHint(ok ? '视频信息已复制' : '复制失败，请手动选择文本');
+    if (ok) {
+      setStatsCopied(true);
+      setTimeout(() => setStatsCopied(false), 1500);
+    }
+  };
+
   const closeQualityMenu = () => {
     const menu = qualityMenuRef.current;
     if (!menu) return;
     menu.list.style.display = 'none';
     menu.root.classList.remove('open');
   };
+
+  /*
+   * 面板打开期间每 800ms 重采一次：缓冲余量/带宽/丢帧都是持续变化的，
+   * 一次性快照看到的是「点开那一刻」的数，用户盯着的却是实时状态。
+   * 暂停时不刷新（数据不会变，省掉无意义的 setState）。
+   */
+  useEffect(() => {
+    if (!statsOpen) return;
+    const timer = setInterval(() => {
+      const art = artRef.current;
+      if (!art || art.video?.paused) return;
+      setStatsRows(collectStats());
+    }, 800);
+    return () => clearInterval(timer);
+  }, [statsOpen]);
 
   const refreshQualityMenu = () => {
     const hls = hlsRef.current;
@@ -657,6 +814,27 @@ export function PlayerShell({
        * 代价：canvas 截图遇到跨域源会抛 SecurityError，play() 里的截图已经 catch 掉，不影响播放。
        */
       moreVideoAttr: { playsInline: true },
+      /*
+       * 自定义「视频信息」控件。挂在 controls-right、index 15：
+       * 排在内置 screenshot(20) 之前、画质胶囊（我们自己塞在 $player 上的浮层）之下，
+       * 这样它与截图/设置/画饼这些同一类「工具按钮」挨在一起，不打断播放控制。
+       *
+       * 必须给 name：基类 add() 会对重复 name 直接抛错（"Can't add an existing [...]"），
+       * 有名字才能在需要时 art.controls.remove('videoStats') 摘掉。
+       * 运行时校验表里没有 beforeUnmount，所以点击事件自己用 proxy 绑定。
+       */
+      controls: [
+        {
+          name: 'videoStats',
+          position: 'right',
+          index: 15,
+          html: VSTATS_ICON,
+          tooltip: '视频信息',
+          click: () => {
+            toggleStatsRef.current();
+          },
+        },
+      ],
       customType: {
         m3u8: (video: HTMLVideoElement, mediaUrl: string) => {
           setupHls(video, mediaUrl, true);
@@ -664,6 +842,8 @@ export function PlayerShell({
       },
     });
     artRef.current = art;
+    // 面板的挂载点：$player 是播放器的浮层坐标系，画质胶囊也挂在同一个节点上
+    setStatsPortalEl((art.template?.$player as HTMLElement | undefined) ?? null);
 
     /**
      * 读解码后的真实分辨率。
@@ -1008,6 +1188,9 @@ export function PlayerShell({
       }
       qualityMenuRef.current?.root.remove();
       qualityMenuRef.current = null;
+      // 面板虽然是 React 渲染的，但它挂在 $player 里；art.destroy() 会把 $player 整棵树拆掉，
+      // 这里只需把内容清空，避免卸载后还有 setInterval 往已销毁的节点上写数据
+      statsFrameRef.current = null;
       hlsRef.current?.destroy();
       hlsRef.current = null;
       recoveryRef.current?.dispose();
@@ -1075,6 +1258,48 @@ export function PlayerShell({
           </div>
         </div>
       )}
+      {/*
+        视频信息面板：用 portal 挂进播放器的 $player 根节点，而不是这个 React 根 div。
+        $player 是 Artplayer 自己的浮层坐标系（画质胶囊就挂在那里）；挂在外层根 div 里
+        会落在 .art-video、.art-bottom 之下，进全屏（$player 被浏览器拉成全屏元素）时会被裁掉。
+        数据每 800ms 刷新，见上面的 setInterval effect，所以面板不必是「点开快照」。
+      */}
+      {statsOpen &&
+        statsPortalEl &&
+        createPortal(
+          <div className="g-vstats" role="dialog" aria-label="视频信息">
+            <div className="g-vstats-head">
+              <strong>视频信息</strong>
+              <button type="button" className="g-vstats-copy" onClick={() => { void copyStats(); }}>
+                {statsCopied ? '已复制' : '复制'}
+              </button>
+              <button type="button" className="g-vstats-x" aria-label="关闭" onClick={() => setStatsOpen(false)}>
+                ×
+              </button>
+            </div>
+            <div className="g-vstats-body">
+              {statsRows.length === 0 ? (
+                <p className="g-vstats-empty">暂时读不到播放信息</p>
+              ) : (
+                statsRows.map((group) => (
+                  <div className="g-vstats-group" key={group.title}>
+                    <span className="g-vstats-gtitle">{group.title}</span>
+                    {group.rows.map((row) => (
+                      <div className={row.warn ? 'g-vstats-row warn' : 'g-vstats-row'} key={row.label}>
+                        <span className="g-vstats-k">{row.label}</span>
+                        <span className="g-vstats-v">
+                          {row.value}
+                          {row.hint && <em>{row.hint}</em>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>,
+          statsPortalEl,
+        )}
       {hint && (
         <div className="absolute z-20 top-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-sm px-3 py-1.5 rounded-full pointer-events-none animate-fade-in">
           {hint}
