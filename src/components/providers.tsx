@@ -9,6 +9,7 @@ import { GlobalDownloadManager } from './download-manager';
 import { useAppStore, hydrateLiveProbeResults } from '@/lib/store';
 import { api, STATUS_QUERY_KEY } from '@/lib/client-api';
 import { applyEnvPresets } from '@/lib/subscription-sync';
+import { purgeLegacyVideoCache } from '@/lib/legacy-cache-purge';
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -23,6 +24,9 @@ export function Providers({ children }: { children: ReactNode }) {
   // store 配置了 skipHydration：等挂载后再读 localStorage，
   // 保证 hydration 阶段客户端与服务端渲染结果一致。
   useEffect(() => {
+    // 回收旧版片段缓存（功能已删，但数据还留在老用户浏览器里）：
+    // 与下面的配置恢复互不依赖，失败静默
+    void purgeLegacyVideoCache();
     // 先等持久化状态恢复，再拉服务端下发数据：
     // 避免 setEnvSources/setLiveEnvSources 的勾选合并发生在 rehydrate 之前被覆盖
     Promise.resolve(useAppStore.persist.rehydrate())

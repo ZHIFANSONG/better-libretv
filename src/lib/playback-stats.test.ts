@@ -188,54 +188,19 @@ describe('播放统计：分片吞吐采样', () => {
       speedBps: undefined,
       ttfbMs: undefined,
       count: 0,
-      liveCount: 0,
-      prefetchedOnly: false,
     });
   });
 
-  it('缓存样本与实时样本混在一起时只统计实时的', () => {
+  it('hint 带上样本数，让用户知道这个数是几个分片撑起来的', () => {
     const summary = summarizeSpeedSamples([
-      { speedBps: 8_000_000, cached: true },
-      { speedBps: 8_100_000, cached: true },
       { speedBps: 70_000_000, ttfbMs: 320 },
       { speedBps: 80_000_000, ttfbMs: 330 },
     ]);
-    // 混算会得出 8 Mbps（中位数落在缓存样本上），只算实时才是 75 Mbps
-    expect(summary.speedBps).toBe(75_000_000);
-    expect(summary.ttfbMs).toBe(325);
-    expect(summary.count).toBe(2);
-    expect(summary.liveCount).toBe(2);
-  });
-
-  it('窗口里全是缓存样本时 hint 改口，不假装是刚测的', () => {
-    const summary = summarizeSpeedSamples([
-      { speedBps: 9_000_000, cached: true, prefetched: true },
-      { speedBps: 10_000_000, cached: true, prefetched: true },
-    ]);
-    expect(summary.liveCount).toBe(0);
-    expect(summary.prefetchedOnly).toBe(true);
     const rows = buildNetworkRows({
       measuredSpeedBps: summary.speedBps,
       speedSampleCount: summary.count,
-      speedLiveCount: summary.liveCount,
-      speedPrefetchedOnly: summary.prefetchedOnly,
     });
-    expect(rows.find((r) => r.label === '实时下载')?.hint).toBe('预取实测');
-  });
-
-  it('预取与缓存回放混在窗口里时 hint 退成「缓存回放」', () => {
-    const summary = summarizeSpeedSamples([
-      { speedBps: 9_000_000, cached: true, prefetched: true },
-      { speedBps: 10_000_000, cached: true },
-    ]);
-    expect(summary.prefetchedOnly).toBe(false);
-    const rows = buildNetworkRows({
-      measuredSpeedBps: summary.speedBps,
-      speedSampleCount: summary.count,
-      speedLiveCount: summary.liveCount,
-      speedPrefetchedOnly: summary.prefetchedOnly,
-    });
-    expect(rows.find((r) => r.label === '实时下载')?.hint).toBe('缓存回放');
+    expect(rows.find((r) => r.label === '实时下载')?.hint).toBe('近 2 个分片');
   });
 });
 

@@ -1,8 +1,8 @@
 /**
  * 下载相关设置的本地存储。
  *
- * 与视频缓存设置（video-cache.ts）分开放：两者语义与生命周期无关，
- * 共用一个 key 会让「清空视频缓存」之类的操作意外重置下载偏好。
+ * 单独一个 key：与站点配置（libretv-settings）分开存，避免「恢复默认设置」
+ * 之类的操作把用户的下载偏好一并重置。
  */
 
 const SETTINGS_KEY = 'libretv-download-settings';

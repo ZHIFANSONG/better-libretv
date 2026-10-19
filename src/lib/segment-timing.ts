@@ -10,7 +10,8 @@
  * 为什么记在模块级的 Map 而不是 loader 实例上：hls 每次请求都 new 一个 loader，
  * 实例之间不共享状态；播放器侧只想知道「最近这些分片的耗时」，与哪个实例无关。
  *
- * 缓存命中的样本成本很低（本地读），可以多留一些；真实网络的样本留 6 个就够。
+ * 只保留真实网络往返的样本：分片本地缓存已经整块移除（见 hls-loader.ts 顶部注释），
+ * 这里不再区分「缓存命中」与「实时下载」。
  */
 export interface SegmentTiming {
   /** 分片字节数 */
@@ -19,14 +20,6 @@ export interface SegmentTiming {
   start: number;
   first: number;
   end: number;
-  /** 是否来自预取缓存（速度真实但首字节时延无意义） */
-  cached: boolean;
-  /**
-   * 是否是预取器自己抓的时候记下的（不是播放器当前这次播放拉的）。
-   * 速度同样真实——那一片确实从这条流下载过——但可能已经是几十秒前的事，
-   * 面板的 hint 要区分开，别让用户以为刚测的。
-   */
-  prefetched?: boolean;
   /** 最近一次被读取时的时间戳，用于淘汰，避免 Map 无限增长 */
   touchedAt: number;
 }
@@ -65,14 +58,6 @@ export function takeSegmentTiming(url: string): SegmentTiming | undefined {
   const hit = timings.get(key);
   if (hit) timings.delete(key);
   return hit;
-}
-
-/**
- * 看一眼有没有记录但**不取走**（用于判断这片是不是已经被预取器真实下载过）。
- * 有真实网络样本时，缓存命中就不该再覆盖它——预取那次才是这条流真实的速度。
- */
-export function peekSegmentTiming(url: string): SegmentTiming | undefined {
-  return timings.get(normalizeUrl(url));
 }
 
 /** 测试与重建播放器用：清空全部记录 */

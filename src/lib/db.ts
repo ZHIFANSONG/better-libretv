@@ -40,19 +40,6 @@ export interface SearchHistoryEntry {
   timestamp: number;
 }
 
-export interface SegmentMetaEntry {
-  /** Cache Storage 中的 key（归一化的分片绝对地址，或同源代理地址） */
-  key: string;
-  /** 所属剧集：`${source}:${vodId}:${episodeIndex}`，用于按集淘汰 */
-  episodeKey: string;
-  /** 片段序号（1 基，便于排查） */
-  index: number;
-  bytes: number;
-  /** 预取时记录的真实耗时（毫秒），loader 命中缓存时合成进 hls.js stats 防 ABR 误判 */
-  costMs: number;
-  lastAccess: number;
-}
-
 /**
  * 跳过片头/片尾的「按剧记忆」条目。
  * 键用 `${sourceKey}_${vodId}` 绑定整部剧（不是单集）：标一次，全部剧集生效。
@@ -92,7 +79,6 @@ export const db = new Dexie('libretv') as Dexie & {
   progress: EntityTable<ProgressEntry, 'key'>;
   searchHistory: EntityTable<SearchHistoryEntry, 'text'>;
   liveProbe: EntityTable<LiveProbeEntry & { url: string }, 'url'>;
-  segmentMeta: EntityTable<SegmentMetaEntry, 'key'>;
   downloads: EntityTable<DownloadTaskEntry, 'id'>;
   skipConfigs: EntityTable<SkipConfigEntry, 'key'>;
 };
@@ -108,15 +94,20 @@ db.version(2).stores({
   liveProbe: 'url',
 });
 
-// v3：视频片段缓存元数据（Cache Storage 存字节、这里存 LRU 索引）与离线下载任务
+// v3：离线下载任务（早先的同版本还建过 segmentMeta 片段缓存索引，见 v5 删除）
 db.version(3).stores({
-  segmentMeta: 'key, episodeKey, lastAccess',
   downloads: 'id, createdAt',
 });
 
 // v4：跳过片头/片尾的按剧记忆（本剧专用的秒数覆盖）
 db.version(4).stores({
   skipConfigs: 'key, updatedAt',
+});
+
+// v5：删除 segmentMeta。Dexie 的版本声明只增不改，直接删掉 v3 里的那张表
+// 会让老用户本地的旧表一直留着，所以必须在这里显式置 null 把它从库里摘掉。
+db.version(5).stores({
+  segmentMeta: null,
 });
 
 export const MAX_HISTORY = 100;

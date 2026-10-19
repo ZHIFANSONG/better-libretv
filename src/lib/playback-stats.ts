@@ -59,13 +59,6 @@ export interface PlaybackStatsInput {
   measuredTtfbMs?: number;
   /** 上述实测值的样本数，写进 hint 让用户知道这个数背后有多少个分片 */
   speedSampleCount?: number;
-  /**
-   * 其中走真实网络的样本数。为 0 表示窗口里的样本全来自预取缓存，
-   * 这时 hint 要写「预取实测」而不是「近 N 个分片」，否则像刚测的。
-   */
-  speedLiveCount?: number;
-  /** 窗口里没有实时样本时，是否全部来自预取（用于区分「预取实测」与「缓存回放」） */
-  speedPrefetchedOnly?: boolean;
   /** 浏览器上报的有效连接类型，如 "4g" / "wifi" */
   effectiveType?: string;
   /**
@@ -273,19 +266,6 @@ export interface SpeedSample {
   speedBps: number;
   /** 首字节时延（ms），拿不到起始时刻时为 undefined */
   ttfbMs?: number;
-  /**
-   * 这一片是不是从本地缓存回放的。
-   *
-   * 预取器把分片提前抓下来，播放时直接命中缓存——这时加载耗时用的是「当初预取花了多久」。
-   * 速度仍然是真的（确实从这条流下载过），但首字节时延无从谈起；
-   * 全都是缓存样本时 hint 也要改口，不能还说「近 N 个分片」像是刚测的。
-   */
-  cached?: boolean;
-  /**
-   * 这一片是预取器自己抓的时候记下的（不是当前这次播放拉的）。
-   * 同样是真实网络往返，但可能已是几十秒前的事，hint 上与刚测的区分开。
-   */
-  prefetched?: boolean;
 }
 
 /** 太小的响应（如几十字节的 init 段探测）算出来的速度噪音极大，直接丢 */
@@ -311,7 +291,7 @@ export function fragmentSpeedSample(timing: FragmentTiming): SpeedSample | null 
   const ttfb = Number.isFinite(start) && (start as number) > 0 ? (first as number) - (start as number) : undefined;
   /*
    * 首字节时延出现负值或超过 30 秒时是脏数据（时钟回拨、请求被复用），宁可不显示。
-   * ttfb === 0 同样丢掉：缓存命中路径把 first 设成等于 start，0 混进中位数
+   * ttfb === 0 同样丢掉：first 与 start 相等时 0 混进中位数，
    * 会把「真实往返 285ms」硬拉成个位数。
    */
   const ttfbMs = ttfb !== undefined && ttfb > 0 && ttfb < 30_000 ? ttfb : undefined;
@@ -348,31 +328,19 @@ export function summarizeSpeedSamples(samples: readonly SpeedSample[]): {
   speedBps?: number;
   ttfbMs?: number;
   count: number;
-  /** 窗口里真正走网络的样本数：为 0 说明这几次命中全是本地缓存 */
-  liveCount: number;
-  /** 全是缓存样本时，它们是否都来自预取器（而不是播放时的缓存回放） */
-  prefetchedOnly: boolean;
 } {
   /*
-   * 窗口里只要还有走网络的样本，就只统计它们。
-   *
-   * 缓存样本的速度是「当初预取那一刻有多快」，和此刻的网络无关；
-   * 两者混在一起取中位数，会出现「四个 8 Mbps 的预取样本 + 两个 80 Mbps 的实时样本
-   * 报出 8 Mbps」这种明显偏低的结果——用户看到的仍是错的数。
-   * 全部都是缓存样本时才退而求其次用它们，并在文案上标明「预取实测」。
+   * 窗口里全是真实网络往返（分片本地缓存已整块移除，不再有「预取回放」样本），
+   * 直接对整窗取中位数即可。
    */
-  const live = samples.filter((s) => !s.cached);
-  const pool = live.length > 0 ? live : samples;
-  const speeds = pool.map((s) => s.speedBps).filter((v) => Number.isFinite(v) && v > 0);
-  const ttfbs = live
+  const speeds = samples.map((s) => s.speedBps).filter((v) => Number.isFinite(v) && v > 0);
+  const ttfbs = samples
     .map((s) => s.ttfbMs)
     .filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0);
   return {
     speedBps: median(speeds),
     ttfbMs: median(ttfbs),
     count: speeds.length,
-    liveCount: live.length,
-    prefetchedOnly: live.length === 0 && samples.length > 0 && samples.every((s) => s.prefetched === true),
   };
 }
 
@@ -384,17 +352,11 @@ export function buildNetworkRows(input: PlaybackStatsInput): StatsRow[] {
     ? Math.round(input.speedSampleCount as number)
     : 0;
   if (measuredSpeed) {
-    const live = Number.isFinite(input.speedLiveCount) ? Math.max(0, Math.round(input.speedLiveCount as number)) : samples;
-    const prefetchedOnly = input.speedPrefetchedOnly === true;
     rows.push({
       label: '实时下载',
       value: formatBitrate(input.measuredSpeedBps),
-      /*
-       * 实测吞吐才是用户真正想知道的「我这网跑这条流够不够」。
-       * 预取缓存命中的样本速度仍然真实（那一片确实从这条流下载过），
-       * 但它是「提前抓的时候有多快」，全命中时必须说清楚，不能让用户以为是刚测的。
-       */
-      hint: samples > 0 ? (live > 0 ? `近 ${samples} 个分片` : (prefetchedOnly ? '预取实测' : '缓存回放')) : '分片实测',
+      // 实测吞吐才是用户真正想知道的「我这网跑这条流够不够」
+      hint: samples > 0 ? `近 ${samples} 个分片` : '分片实测',
     });
   }
   if (Number.isFinite(input.measuredTtfbMs) && (input.measuredTtfbMs as number) > 0) {

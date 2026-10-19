@@ -302,9 +302,6 @@ function WatchContent() {
                   title={videoTitle}
                   adFilter={store.adFilter}
                   autoplayNext={store.autoplayNext}
-                  episodeKey={`${sourceKey}:${vodId}:${currentIndex}`}
-                  nextUrl={hasNext ? episodes[currentIndex + 1] : undefined}
-                  nextEpisodeKey={hasNext ? `${sourceKey}:${vodId}:${currentIndex + 1}` : undefined}
                   getRestorePosition={getRestorePosition}
                   onTimeUpdate={handleProgress}
                   onPause={handleProgress}

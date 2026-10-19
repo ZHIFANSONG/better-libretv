@@ -1,18 +1,18 @@
 import type HlsType from 'hls.js';
 import { stripAdGroups } from './m3u8';
-import { peekSegmentTiming, recordSegmentTiming } from './segment-timing';
-import { buildSegmentCacheKey, readCachedSegment, touchMeta } from './video-cache';
+import { recordSegmentTiming } from './segment-timing';
 
 /**
- * hls.js loader 工厂：在同一个 loader 里组合「广告过滤」与「片段缓存命中」。
+ * hls.js loader 工厂：广告过滤 + 分片计时。
  *
  * - manifest / level：走基类网络加载；blockAd 开启时在 onSuccess 里剔除
  *   片头插入的广告段（整段移除，保留 DISCONTINUITY 时间轴标记）；
- * - fragment：cache-first——本地缓存命中直接合成响应（不回源），未命中走基类。
- *   BYTERANGE 分片（原文件切片）不缓存、直接回源。
+ * - fragment：直接走基类网络加载，不经过任何本地存储。
  *
- * 关键细节：缓存命中时用预取阶段记录的**真实耗时**（costMs）合成 hls.js 的
- * loader stats——如果让加载时长为 0，ABR 会把它当成无限带宽，错误地拉高码率。
+ * 这里曾经还兼着「片段本地缓存命中」：分片先查 Cache Storage，命中就直接合成响应。
+ * 已整块移除 —— 预取器为了填缓存会在播放间隙并发抓分片，暂停与后台标签页也不停，
+ * 大码率剧集上表现为手机发烫、播放卡顿。顺带 hls.js 的缓冲上限也回到了常规值
+ * （见 player-shell.tsx 的 buildHlsConfig），不再为了配合预取把 buffer 抬到 600s/90MB。
  *
  * 另一个职责：把每片的加载时刻抄进 segment-timing。hls.js 在 onSuccess 之后
  * 立刻 destroy loader，stats 被置空，等 FRAG_LOADED 事件到来时已经读不到时刻了
@@ -23,8 +23,6 @@ import { buildSegmentCacheKey, readCachedSegment, touchMeta } from './video-cach
  */
 interface LoaderOptions {
   blockAd?: boolean;
-  /** 缓存命中探针（设置面板展示命中率用），可缺省 */
-  onProbe?: (hit: boolean) => void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -34,9 +32,9 @@ export function createHlsLoader(
   HlsCtor: typeof HlsType,
   options: LoaderOptions = {}
 ): HlsLoaderCtor {
-  const { blockAd = false, onProbe } = options;
+  const { blockAd = false } = options;
 
-  return class CacheFirstHlsLoader extends (HlsCtor.DefaultConfig.loader as HlsLoaderCtor) {
+  return class InstrumentedHlsLoader extends (HlsCtor.DefaultConfig.loader as HlsLoaderCtor) {
     private destroyed = false;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -59,7 +57,6 @@ export function createHlsLoader(
               start: Number(stats.loading.start) || 0,
               first: Number(stats.loading.first) || 0,
               end: Number(stats.loading.end) || 0,
-              cached: false,
             });
           }
           if (!this.destroyed) onSuccess(response, stats, ctx, networkDetails);
@@ -72,9 +69,7 @@ export function createHlsLoader(
 
         // —— 播放列表：网络加载 + 可选广告过滤 ——
         if (isPlaylist) {
-           
           if (blockAd) {
-             
             const onSuccess = callbacks.onSuccess;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             callbacks.onSuccess = function (response: any, stats: any, ctx: any, networkDetails: any) {
@@ -88,57 +83,9 @@ export function createHlsLoader(
           return;
         }
 
-        // —— BYTERANGE 分片：整文件切片，无法独立缓存，直接回源（时刻照记，面板要用） ——
-        if (context.rangeStart || context.rangeEnd) {
-          tapStats(context, callbacks);
-          load(context, config, callbacks);
-          return;
-        }
-
-        // —— 片段：cache-first ——
-        const key = buildSegmentCacheKey(context.url);
-        readCachedSegment(key).then((hit) => {
-          if (this.destroyed) return;
-          if (hit) {
-            void touchMeta(key);
-            onProbe?.(true);
-            const now = performance.now();
-            /*
-             * 缓存命中不是真实网络往返，但 hls.js 只认 stats 里的时刻差。
-             * 关键是把 loading.first 压到贴近 start（而不是现在的 +1ms）：
-             * 视频信息面板用 end-first 算「实时下载」、first-start 算「首字节延迟」，
-             * first 若只晚 start 1ms，面板就会报「首字节 1ms / 几十 Mbps」这种假数。
-             * 这里把预取阶段实测的下载耗时完整放在 first→end 上，首字节记 0，
-             * 于是面板显示的是「当初抓这个分片真实花了多久」，而不是凭空捏造的速度。
-             */
-            Object.assign(this.stats, {
-              loading: { start: now - hit.costMs, first: now - hit.costMs, end: now },
-              total: hit.data.byteLength,
-              loaded: hit.data.byteLength,
-            });
-            /*
-             * 预取那次也是真的走网络了（预取器自己 fetch 的），它的耗时就是这条流的真实速度。
-             * 但预取器拿不到 hls 的 stats，只能在「播放时命中缓存」这一刻补记；
-             * 若这条 URL 已经有过真实网络样本（比如第二次拖动重载），保留那次，不覆盖。
-             */
-            const existing = peekSegmentTiming(context.url);
-            if (!existing || existing.cached) {
-              recordSegmentTiming(context.url, {
-                loaded: hit.data.byteLength,
-                start: now - hit.costMs,
-                first: now - hit.costMs,
-                end: now,
-                cached: true,
-              });
-            }
-            callbacks.onSuccess({ url: context.url, data: hit.data }, this.stats, context, undefined);
-            return;
-          }
-          onProbe?.(false);
-           
-          tapStats(context, callbacks);
-          load(context, config, callbacks);
-        });
+        // —— 分片：纯网络加载，只顺手记时刻（面板要用） ——
+        tapStats(context, callbacks);
+        load(context, config, callbacks);
       };
     }
 

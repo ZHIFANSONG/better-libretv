@@ -19,9 +19,9 @@ export function isProxiedUri(uri: string): boolean {
 /**
  * 文档基址：把本站根相对地址锚成绝对地址时使用。
  * 代理形态的地址形如 `/api/proxy?url=…`（见 PROXY_BASE），而
- * `new URL(相对串, 相对基址)` 必然抛错、只能原样返回，于是同一个分片在
- * 预取侧与播放器侧会是两个不同的字符串。SSR 下没有 document，返回
- * undefined，由调用方按「无法锚定」降级处理。
+ * `new URL(相对串, 相对基址)` 必然抛错、只能原样返回，于是同一个分片
+ * 在不同解析路径下会是两个不同的字符串（离线下载的去重就靠它对齐）。
+ * SSR 下没有 document，返回 undefined，由调用方按「无法锚定」降级处理。
  */
 export function documentBaseURI(): string | undefined {
   return typeof document === 'undefined' ? undefined : document.baseURI;

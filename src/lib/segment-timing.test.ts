@@ -7,7 +7,7 @@ import {
   takeSegmentTiming,
 } from './segment-timing';
 
-const base = { loaded: 200_000, start: 1000, first: 1150, end: 1250, cached: false };
+const base = { loaded: 200_000, start: 1000, first: 1150, end: 1250 };
 
 describe('分片时刻表', () => {
   beforeEach(() => clearSegmentTimings());
@@ -29,10 +29,5 @@ describe('分片时刻表', () => {
     expect(segmentTimingCount()).toBe(64);
     expect(takeSegmentTiming('https://cdn.example.com/0.ts')).toBeUndefined();
     expect(takeSegmentTiming('https://cdn.example.com/69.ts')?.loaded).toBe(200_000);
-  });
-
-  it('区分缓存命中与真实网络样本', () => {
-    recordSegmentTiming('https://cdn.example.com/cached.ts', { ...base, cached: true });
-    expect(takeSegmentTiming('https://cdn.example.com/cached.ts')?.cached).toBe(true);
   });
 });

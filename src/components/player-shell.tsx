@@ -7,11 +7,6 @@ import Hls, { type HlsConfig } from 'hls.js';
 
 import { PlaybackRecovery, describeHlsError } from '@/lib/playback-recovery';
 import { createHlsLoader } from '@/lib/hls-loader';
-import {
-  getVideoPrefetcher,
-  getNextEpisodePrefetcher,
-} from '@/lib/video-prefetcher';
-import { loadCacheSettings } from '@/lib/video-cache';
 import { formatTime } from '@/lib/utils';
 import { qualityLabel } from '@/lib/quality';
 import { copyToClipboard } from '@/lib/clipboard';
@@ -58,11 +53,6 @@ interface PlayerShellProps {
   title: string;
   adFilter: boolean;
   autoplayNext: boolean;
-  /** 剧集标识 `${source}:${vodId}:${episodeIndex}`（片段缓存按集淘汰的分组键） */
-  episodeKey?: string;
-  /** 下一集 m3u8 地址：当前集预取完成后预热下一集前 7 分钟 */
-  nextUrl?: string;
-  nextEpisodeKey?: string;
   /** 进度恢复：优先 URL position，其次查询该回调（返回 0 表示无记录） */
   getRestorePosition?: () => number | Promise<number>;
   onTimeUpdate?: (position: number, duration: number) => void;
@@ -156,9 +146,6 @@ export function PlayerShell({
   title,
   adFilter,
   autoplayNext,
-  episodeKey,
-  nextUrl,
-  nextEpisodeKey,
   getRestorePosition,
   onTimeUpdate,
   onEnded,
@@ -184,12 +171,12 @@ export function PlayerShell({
 
   // 始终持有最新 props/回调，避免重建播放器
   const propsRef = useRef({
-    url, title, adFilter, autoplayNext, episodeKey, nextUrl, nextEpisodeKey,
+    url, title, adFilter, autoplayNext,
     getRestorePosition, onTimeUpdate, onEnded, onPause, onQuality, onRequestSwitchSource,
     introSec, outroSec, onUndoIntro,
   });
   propsRef.current = {
-    url, title, adFilter, autoplayNext, episodeKey, nextUrl, nextEpisodeKey,
+    url, title, adFilter, autoplayNext,
     getRestorePosition, onTimeUpdate, onEnded, onPause, onQuality, onRequestSwitchSource,
     introSec, outroSec, onUndoIntro,
   };
@@ -211,8 +198,6 @@ export function PlayerShell({
   // 「等时长就绪再恢复」挂在 video 上的监听清理函数：
   // 换集 / 代理回退重建 hls / 卸载时必须摘掉，否则旧监听会在新一集上误恢复进度
   const restoreCleanupRef = useRef<(() => void) | null>(null);
-  // timeupdate 续跑预取的游标：必须按集清零，否则会沿用上一集的时间戳推迟首次续跑
-  const lastPrefetchEnsureRef = useRef(0);
   // setupHls 可能改走代理形式，video:error 重试要用最近一次的地址
   const currentMediaUrlRef = useRef(url);
   // 本集的恢复策略实例：跨直连/代理两级重建共享计数
@@ -234,18 +219,23 @@ export function PlayerShell({
     hintTimerRef.current = setTimeout(() => setHint(''), 2500);
   };
 
-  // 片段缓存开启时调大 hls.js 自身缓冲，缓冲之外的空窗由预取器补齐
+  /**
+   * hls.js 配置。
+   *
+   * 缓冲上限刻意压得保守（30s / 60s / 30MB）：曾经为了配合片段预取器把它抬到
+   * 120s / 600s / 90MB，结果是长剧集上 MSE 里堆着几十秒乃至几分钟的分片，
+   * 手机端内存与解码压力陡增，表现就是发烫、卡顿。预取器已整块移除，
+   * 这里也不再需要为它留余量。
+   */
   const buildHlsConfig = (): Partial<HlsConfig> => {
     const p = propsRef.current;
-    const cacheSettings = loadCacheSettings();
-    const cacheEnabled = cacheSettings.enabled && !!p.episodeKey;
     return {
       debug: false,
       enableWorker: true,
       backBufferLength: 90,
-      maxBufferLength: cacheEnabled ? 120 : 30,
-      maxMaxBufferLength: cacheEnabled ? 600 : 60,
-      maxBufferSize: (cacheEnabled ? 90 : 30) * 1000 * 1000,
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60,
+      maxBufferSize: 30 * 1000 * 1000,
       maxBufferHole: 0.5,
       fragLoadingMaxRetry: 6,
       fragLoadingRetryDelay: 1000,
@@ -254,32 +244,9 @@ export function PlayerShell({
       startLevel: -1,
       abrEwmaDefaultEstimate: 500_000,
       appendErrorMaxRetry: 5,
-      // 组合 loader：广告过滤（blockAd 随设置）+ 片段缓存命中（cacheEnabled）
+      // 组合 loader：只做广告过滤（blockAd 随设置）与分片计时，不碰任何本地存储
       loader: createHlsLoader(Hls, { blockAd: p.adFilter }) as unknown as HlsConfig['loader'],
     };
-  };
-
-  // 当前集预取（episodeKey 缺省 = 关闭，见 ensure 内部 settings.enabled 判断）
-  const ensurePrefetch = (mediaUrl: string, currentTime: number, horizonSeconds?: number) => {
-    const p = propsRef.current;
-    if (!p.episodeKey) return;
-    getVideoPrefetcher().ensure({
-      m3u8Url: mediaUrl,
-      currentTime,
-      episodeKey: p.episodeKey,
-      horizonSeconds,
-      onProgress: (stats) => {
-        // 当前集预取完成且存在下一集：用独立预取器预热下一集前 7 分钟
-        if (stats.state === 'done' && p.nextUrl && p.nextEpisodeKey) {
-          getNextEpisodePrefetcher().ensure({
-            m3u8Url: p.nextUrl,
-            currentTime: 0,
-            episodeKey: p.nextEpisodeKey,
-            horizonSeconds: 420,
-          });
-        }
-      },
-    });
   };
 
   /**
@@ -386,8 +353,6 @@ export function PlayerShell({
       measuredSpeedBps: speed.speedBps,
       measuredTtfbMs: speed.ttfbMs,
       speedSampleCount: speed.count,
-      speedLiveCount: speed.liveCount,
-      speedPrefetchedOnly: speed.prefetchedOnly,
       width: video.videoWidth,
       height: video.videoHeight,
       duration: video.duration,
@@ -636,7 +601,7 @@ export function PlayerShell({
     hlsRef.current = hls;
 
     /**
-     * 进度恢复 + 起播 + 首次预取。
+     * 进度恢复 + 起播。
      *
      * 关键在于「什么时候算可以恢复」：MANIFEST_PARSED 只说明 m3u8 解析完了，
      * 很多 HLS 源此时 duration 仍是 0（尤其代理回退后重建的那一次），
@@ -655,20 +620,13 @@ export function PlayerShell({
       try {
         const saved = (await propsRef.current.getRestorePosition?.()) ?? 0;
         const currentDuration = artRef.current?.duration || video.duration || duration;
-        // 预取锚点：恢复进度时直接取恢复目标。赋值后 video.currentTime 未必立刻反映
-        // （Safari 系），而 ensure 是以「锚点未变」为前提复用 parsing 中的运行的——
-        // 这里读到旧值会把窗口建在片头，且白等一次纠错重建。
-        let prefetchAnchor = video.currentTime;
         if (saved > 10 && Number.isFinite(currentDuration) && saved < currentDuration - 2) {
           if (artRef.current) artRef.current.currentTime = saved;
-          prefetchAnchor = saved;
           showHint(`已从 ${formatTime(saved)} 继续播放`);
         }
         restoredRef.current = true;
         restoreCleanupRef.current?.();
         restoreCleanupRef.current = null;
-        // 新集立即预取（否则要等 timeupdate 的 30s 节流，起播初期无缓存）
-        ensurePrefetch(mediaUrl, prefetchAnchor);
         video.play().catch(() => {});
       } catch {
         // IndexedDB 读取失败不阻塞播放：restoredRef 不置位，后续事件还能再试
@@ -719,11 +677,7 @@ export function PlayerShell({
       if (!fragUrl) return;
       const timing = takeSegmentTiming(fragUrl);
       if (!timing) return;
-      const sample = fragmentSpeedSample(timing);
-      speedSamplesRef.current = pushSpeedSample(
-        speedSamplesRef.current,
-        sample ? { ...sample, cached: timing.cached, prefetched: timing.prefetched } : null,
-      );
+      speedSamplesRef.current = pushSpeedSample(speedSamplesRef.current, fragmentSpeedSample(timing));
     });
     // 单码率源在 MANIFEST 阶段拿不到 height（清单尚未解析），这里补一次。
     // 注意 data.level 是档位下标，分辨率在 levelInfo 上
@@ -800,10 +754,7 @@ export function PlayerShell({
     outroFiredRef.current = false;
     setUndoIntroSec(0);
     if (undoIntroTimerRef.current) clearTimeout(undoIntroTimerRef.current);
-    lastPrefetchEnsureRef.current = 0;
     recoveryRef.current = new PlaybackRecovery();
-    // 换集时清掉上一集的预取窗口，避免带宽被旧集占用
-    getVideoPrefetcher().stop();
     setError('');
     setShowPoster(true);
     const art = artRef.current;
@@ -1099,30 +1050,9 @@ export function PlayerShell({
         lastSave = now;
         propsRef.current.onTimeUpdate?.(art.currentTime, art.duration);
       }
-      // 每 30s 续跑一次前向预取窗口（ensure 幂等，窗口未覆盖足够余量才会重建）
-      if (now - lastPrefetchEnsureRef.current > 30_000) {
-        lastPrefetchEnsureRef.current = now;
-        // 用 currentMediaUrlRef（代理回退后的实际地址）：否则预取的 key 与
-        // loader 读取的 key 不一致，缓存永不命中且直连 fetch 白耗流量
-        ensurePrefetch(currentMediaUrlRef.current, art.currentTime);
-      }
-    });
-    art.on('video:seeked', () => {
-      ensurePrefetch(currentMediaUrlRef.current, art.currentTime);
     });
     art.on('video:pause', () => {
       propsRef.current.onPause?.(art.currentTime, art.duration);
-      // 暂停 = 预取黄金窗口：解除限速并无限铺满整集（用户主动行为，带宽占用可接受）
-      // waiting 触发的限速在此解除，否则黄金窗口会被 500ms 轮询冻结
-      getVideoPrefetcher().setThrottled(false);
-      ensurePrefetch(currentMediaUrlRef.current, art.currentTime, 0);
-    });
-    art.on('video:waiting', () => {
-      // 卡顿：预取临时让出带宽给播放
-      getVideoPrefetcher().setThrottled(true);
-    });
-    art.on('video:playing', () => {
-      getVideoPrefetcher().setThrottled(false);
     });
     art.on('video:ended', () => {
       endedRef.current = true;
@@ -1246,7 +1176,6 @@ export function PlayerShell({
       hlsRef.current?.destroy();
       hlsRef.current = null;
       recoveryRef.current?.dispose();
-      getVideoPrefetcher().stop();
       art.destroy();
       artRef.current = null;
     };
