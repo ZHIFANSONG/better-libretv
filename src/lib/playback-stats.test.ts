@@ -10,9 +10,12 @@ import {
   formatDuration,
   formatFrameRate,
   formatResolution,
+  fragmentSpeedSample,
   networkInput,
   networkTypeLabel,
+  pushSpeedSample,
   statsToText,
+  summarizeSpeedSamples,
 } from './playback-stats';
 
 describe('播放统计：数值格式化', () => {
@@ -85,11 +88,154 @@ describe('播放统计：编解码器与网络', () => {
     expect(rows.map((r) => r.label)).toEqual(['缓冲余量']);
   });
 
-  it('有网络信息时下行估速标注为估算值', () => {
+  it('有网络信息时下行估速标注为浏览器档位', () => {
     const rows = buildNetworkRows({ downlinkMbps: 9.6, rttMs: 42, effectiveType: '4g', bufferedAhead: 12 });
-    expect(rows.find((r) => r.label === '下行估速')?.hint).toBe('浏览器估算上限');
+    expect(rows.find((r) => r.label === '下行估速')?.hint).toBe('浏览器档位');
     expect(rows.find((r) => r.label === '往返时延')?.value).toBe('42 ms');
     expect(rows.find((r) => r.label === '缓冲余量')?.warn).toBe(false);
+    // 浏览器报的 effectiveType 是带宽档不是制式，所以叫「浏览器档位」
+    expect(rows.find((r) => r.label === '浏览器档位')?.value).toBe('4G');
+  });
+
+  it('有实测吞吐时不再显示浏览器的粗粒度档位，避免两个数打架', () => {
+    const rows = buildNetworkRows({
+      measuredSpeedBps: 22_730_000,
+      measuredTtfbMs: 149.8,
+      speedSampleCount: 6,
+      downlinkMbps: 1.4,
+      rttMs: 250,
+      effectiveType: '4g',
+      bufferedAhead: 12,
+    });
+    const labels = rows.map((r) => r.label);
+    expect(labels).toContain('实时下载');
+    expect(labels).not.toContain('下行估速');
+    expect(labels).not.toContain('往返时延');
+    expect(rows.find((r) => r.label === '实时下载')?.value).toBe('22.7 Mbps');
+    expect(rows.find((r) => r.label === '实时下载')?.hint).toBe('近 6 个分片');
+    expect(rows.find((r) => r.label === '首字节延迟')?.value).toBe('150 ms');
+    expect(rows.find((r) => r.label === '首字节延迟')?.hint).toBe('分片实测');
+  });
+
+  it('没有实测样本时退回浏览器档位兜底', () => {
+    const rows = buildNetworkRows({ downlinkMbps: 1.4, rttMs: 250, effectiveType: '4g' });
+    expect(rows.find((r) => r.label === '下行估速')?.value).toBe('1.4 Mbps');
+    expect(rows.some((r) => r.label === '实时下载')).toBe(false);
+  });
+
+  it('样本数缺失时 hint 不写成「近 0 个分片」', () => {
+    const rows = buildNetworkRows({ measuredSpeedBps: 8_000_000 });
+    expect(rows.find((r) => r.label === '实时下载')?.hint).toBe('分片实测');
+  });
+});
+
+describe('播放统计：分片吞吐采样', () => {
+  it('扣掉首字节等待算纯下载速度，TTFB 另算', () => {
+    // 200KB 分片、首字节等了 150ms、传输 100ms → 16 Mbps，而不是 6.4 Mbps
+    const sample = fragmentSpeedSample({ loaded: 200_000, start: 1000, first: 1150, end: 1250 });
+    expect(sample?.speedBps).toBeCloseTo(16_000_000);
+    expect(sample?.ttfbMs).toBe(150);
+  });
+
+  it('太小的响应与太短的传输窗口都丢弃', () => {
+    expect(fragmentSpeedSample({ loaded: 1000, start: 0, first: 10, end: 200 })).toBeNull();
+    expect(fragmentSpeedSample({ loaded: 200_000, start: 0, first: 10, end: 20 })).toBeNull();
+    expect(fragmentSpeedSample({ loaded: 200_000 })).toBeNull();
+  });
+
+  it('首字节时延异常时不写这一项，但速度照算', () => {
+    const sample = fragmentSpeedSample({ loaded: 200_000, start: 5000, first: 1150, end: 1250 });
+    expect(sample?.speedBps).toBeCloseTo(16_000_000);
+    expect(sample?.ttfbMs).toBeUndefined();
+  });
+
+  it('缓存命中的 0ms 首字节不进样本，免得把真实往返拉低', () => {
+    const sample = fragmentSpeedSample({ loaded: 200_000, start: 1000, first: 1000, end: 1100 });
+    expect(sample?.speedBps).toBeCloseTo(16_000_000);
+    expect(sample?.ttfbMs).toBeUndefined();
+  });
+
+  it('汇总时跳过没有首字节时延的样本', () => {
+    const summary = summarizeSpeedSamples([
+      { speedBps: 8_000_000 },
+      { speedBps: 8_500_000, ttfbMs: 285 },
+      { speedBps: 9_000_000, ttfbMs: 300 },
+    ]);
+    expect(summary.ttfbMs).toBe(292.5);
+    expect(summary.count).toBe(3);
+  });
+
+  it('滑动窗口只保留最近若干个样本', () => {
+    let samples: ReturnType<typeof pushSpeedSample> = [];
+    for (let i = 0; i < 10; i += 1) samples = pushSpeedSample(samples, { speedBps: (i + 1) * 1_000_000 }, 6);
+    expect(samples).toHaveLength(6);
+    expect(samples[samples.length - 1].speedBps).toBe(10_000_000);
+  });
+
+  it('汇总取中位数而不是均值，一次突发拉不偏它', () => {
+    const summary = summarizeSpeedSamples([
+      { speedBps: 2_000_000, ttfbMs: 100 },
+      { speedBps: 2_200_000, ttfbMs: 120 },
+      { speedBps: 60_000_000, ttfbMs: 400 },
+    ]);
+    expect(summary.speedBps).toBe(2_200_000);
+    expect(summary.ttfbMs).toBe(120);
+    expect(summary.count).toBe(3);
+  });
+
+  it('空窗口返回 undefined，让面板回退浏览器档位', () => {
+    expect(summarizeSpeedSamples([])).toEqual({
+      speedBps: undefined,
+      ttfbMs: undefined,
+      count: 0,
+      liveCount: 0,
+      prefetchedOnly: false,
+    });
+  });
+
+  it('缓存样本与实时样本混在一起时只统计实时的', () => {
+    const summary = summarizeSpeedSamples([
+      { speedBps: 8_000_000, cached: true },
+      { speedBps: 8_100_000, cached: true },
+      { speedBps: 70_000_000, ttfbMs: 320 },
+      { speedBps: 80_000_000, ttfbMs: 330 },
+    ]);
+    // 混算会得出 8 Mbps（中位数落在缓存样本上），只算实时才是 75 Mbps
+    expect(summary.speedBps).toBe(75_000_000);
+    expect(summary.ttfbMs).toBe(325);
+    expect(summary.count).toBe(2);
+    expect(summary.liveCount).toBe(2);
+  });
+
+  it('窗口里全是缓存样本时 hint 改口，不假装是刚测的', () => {
+    const summary = summarizeSpeedSamples([
+      { speedBps: 9_000_000, cached: true, prefetched: true },
+      { speedBps: 10_000_000, cached: true, prefetched: true },
+    ]);
+    expect(summary.liveCount).toBe(0);
+    expect(summary.prefetchedOnly).toBe(true);
+    const rows = buildNetworkRows({
+      measuredSpeedBps: summary.speedBps,
+      speedSampleCount: summary.count,
+      speedLiveCount: summary.liveCount,
+      speedPrefetchedOnly: summary.prefetchedOnly,
+    });
+    expect(rows.find((r) => r.label === '实时下载')?.hint).toBe('预取实测');
+  });
+
+  it('预取与缓存回放混在窗口里时 hint 退成「缓存回放」', () => {
+    const summary = summarizeSpeedSamples([
+      { speedBps: 9_000_000, cached: true, prefetched: true },
+      { speedBps: 10_000_000, cached: true },
+    ]);
+    expect(summary.prefetchedOnly).toBe(false);
+    const rows = buildNetworkRows({
+      measuredSpeedBps: summary.speedBps,
+      speedSampleCount: summary.count,
+      speedLiveCount: summary.liveCount,
+      speedPrefetchedOnly: summary.prefetchedOnly,
+    });
+    expect(rows.find((r) => r.label === '实时下载')?.hint).toBe('缓存回放');
   });
 });
 
@@ -107,7 +253,7 @@ describe('播放统计：分组', () => {
     });
     const rows = groups[0].rows;
     expect(rows.find((r) => r.label === '声明码率')?.value).toBe('2.56 Mbps');
-    expect(rows.find((r) => r.label === '带宽估算')?.value).toBe('3.12 Mbps');
+    expect(rows.find((r) => r.label === 'ABR 估速')?.value).toBe('3.12 Mbps');
   });
 
   it('丢帧行只在有帧计数时出现，占比超过 2% 才告警', () => {
@@ -148,7 +294,7 @@ describe('播放统计：复制为文本', () => {
     expect(text.startsWith('【视频信息】甄嬛传 第1集')).toBe(true);
     expect(text).toContain('画面');
     expect(text).toContain('分辨率：1920 × 1080');
-    expect(text).toContain('带宽估算：3.12 Mbps（hls ABR）');
+    expect(text).toContain('ABR 估速：3.12 Mbps（hls 自动选档）');
     expect(text).toContain('缓冲余量：0.4s · 见底 ⚠');
     expect(text).not.toContain('{');
   });

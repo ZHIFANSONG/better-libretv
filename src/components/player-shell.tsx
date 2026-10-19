@@ -15,13 +15,18 @@ import { loadCacheSettings } from '@/lib/video-cache';
 import { formatTime } from '@/lib/utils';
 import { qualityLabel } from '@/lib/quality';
 import { copyToClipboard } from '@/lib/clipboard';
+import { clearSegmentTimings, takeSegmentTiming } from '@/lib/segment-timing';
 import {
   bufferedAheadOf,
   buildStatsGroups,
+  fragmentSpeedSample,
   networkInput,
+  pushSpeedSample,
   statsToText,
+  summarizeSpeedSamples,
   type NetworkInformationLike,
   type PlaybackStatsInput,
+  type SpeedSample,
   type StatsGroup,
 } from '@/lib/playback-stats';
 
@@ -291,6 +296,15 @@ export function PlayerShell({
   // 帧率采样基线：{ 上一次采样时刻, 累计出帧数 }。帧率只能靠两次采样的差值算，
   // 所以基线要和面板同生共死——面板关掉就清空，免得隔了十分钟还在拿旧差值当帧率。
   const statsFrameRef = useRef<{ at: number; total: number } | null>(null);
+  /*
+   * 分片吞吐采样窗口（最近 6 个主视频分片的实测速度与首字节时延）。
+   *
+   * 为什么不直接用 navigator.connection.downlink：那是「有效带宽档」，
+   * Chrome 对所有宽带都报同一档，实测面板写 1.4 Mbps 而同刻分片真实吞吐 22.7 Mbps。
+   * 分片的字节数与传输耗时是 hls.js 自己量的，这才是这条流真实跑多快。
+   * 窗口跨集保留：选集时网络不会变，没必要清空重新攒样本。
+   */
+  const speedSamplesRef = useRef<SpeedSample[]>([]);
   // 控件在「创建播放器」那个只跑一次的 effect 里注册，闭包会永远停在首帧的 statsOpen，
   // 所以点击回调必须走 ref 转一手，才能拿到最新的 toggleStats。
   const toggleStatsRef = useRef<() => void>(() => {});
@@ -365,7 +379,14 @@ export function PlayerShell({
     const level = index >= 0 ? levels[index] : undefined;
 
     const connection = (navigator as unknown as { connection?: NetworkInformationLike }).connection;
+    const speed = summarizeSpeedSamples(speedSamplesRef.current);
     const input: PlaybackStatsInput = {
+      // 有实测分片时用它，没有才让浏览器档位兜底（buildNetworkRows 内部判断）
+      measuredSpeedBps: speed.speedBps,
+      measuredTtfbMs: speed.ttfbMs,
+      speedSampleCount: speed.count,
+      speedLiveCount: speed.liveCount,
+      speedPrefetchedOnly: speed.prefetchedOnly,
       width: video.videoWidth,
       height: video.videoHeight,
       duration: video.duration,
@@ -676,7 +697,30 @@ export function PlayerShell({
       void restoreAndStart();
     });
     // 播放链路恢复（FRAG_LOADED / MANIFEST_PARSED）：静默窗外清零连续失败计数
-    hls.on(Hls.Events.FRAG_LOADED, () => recoveryRef.current?.markHealthy());
+    hls.on(Hls.Events.FRAG_LOADED, (_evt, data) => {
+      recoveryRef.current?.markHealthy();
+      /*
+       * 顺手采一个吞吐样本（面板「实时下载」的数据来源）。
+       *
+       * 时刻不从 data.frag.stats 读：hls.js 在 onSuccess 里就 resetLoader() → loader.destroy()，
+       * 而 BaseLoader.destroy() 会把 stats 置成 null，等这条事件回调执行时已经是空的。
+       * 所以时刻由自定义 loader 落在 segment-timing 里，这里按分片 URL 取（取走即删，一片只算一次样本）。
+       *
+       * 只算主视频分片——音频分片只有几十 KB，混进来会把中位数拉得毫无意义。
+       */
+      const frag = data.frag;
+      if (frag?.type && frag.type !== 'main') return;
+      // frag.url 在 hls.js 的 resetLoader 里会被置空，relurl 兜一层（两个都绝对化后再比对）
+      const fragUrl = frag?.url || frag?.relurl;
+      if (!fragUrl) return;
+      const timing = takeSegmentTiming(fragUrl);
+      if (!timing) return;
+      const sample = fragmentSpeedSample(timing);
+      speedSamplesRef.current = pushSpeedSample(
+        speedSamplesRef.current,
+        sample ? { ...sample, cached: timing.cached, prefetched: timing.prefetched } : null,
+      );
+    });
     // 单码率源在 MANIFEST 阶段拿不到 height（清单尚未解析），这里补一次。
     // 注意 data.level 是档位下标，分辨率在 levelInfo 上
     hls.on(Hls.Events.LEVEL_LOADED, (_evt, data) => {
@@ -1191,6 +1235,9 @@ export function PlayerShell({
       // 面板虽然是 React 渲染的，但它挂在 $player 里；art.destroy() 会把 $player 整棵树拆掉，
       // 这里只需把内容清空，避免卸载后还有 setInterval 往已销毁的节点上写数据
       statsFrameRef.current = null;
+      // 采样窗口跟着播放器生命周期走：重建播放器（换源）时留着旧源的吞吐会误导
+      speedSamplesRef.current = [];
+      clearSegmentTimings();
       hlsRef.current?.destroy();
       hlsRef.current = null;
       recoveryRef.current?.dispose();

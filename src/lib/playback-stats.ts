@@ -50,11 +50,34 @@ export interface PlaybackStatsInput {
     videoCodec?: string;
     audioCodec?: string;
   };
+  /**
+   * 实测下行速度（bps）：由播放器统计「最近若干分片」的字节数与传输耗时得到。
+   * 这是唯一能代表「现在这条流到底跑多快」的数，比 navigator.connection.downlink 可靠得多。
+   */
+  measuredSpeedBps?: number;
+  /** 实测首字节时延中位数（ms），与 measuredSpeedBps 同源 */
+  measuredTtfbMs?: number;
+  /** 上述实测值的样本数，写进 hint 让用户知道这个数背后有多少个分片 */
+  speedSampleCount?: number;
+  /**
+   * 其中走真实网络的样本数。为 0 表示窗口里的样本全来自预取缓存，
+   * 这时 hint 要写「预取实测」而不是「近 N 个分片」，否则像刚测的。
+   */
+  speedLiveCount?: number;
+  /** 窗口里没有实时样本时，是否全部来自预取（用于区分「预取实测」与「缓存回放」） */
+  speedPrefetchedOnly?: boolean;
   /** 浏览器上报的有效连接类型，如 "4g" / "wifi" */
   effectiveType?: string;
-  /** 浏览器估测的下行带宽（Mbps） */
+  /**
+   * 浏览器估测的下行带宽（Mbps）。
+   *
+   * 只在拿不到实测速度时兜底显示——它是个粗粒度档位而不是当前吞吐：
+   * Chrome 对任意宽带连接都会给 10 Mbps 上限、Wi-Fi/4G 给同一档，
+   * 实测过「面板写 1.4 Mbps，同一时间段分片真实吞吐 22.7 Mbps」。
+   * 拿它跟码率并列，用户必然以为自己在用 1.4 Mbps 的网。
+   */
   downlinkMbps?: number;
-  /** 浏览器估测的往返时延（ms） */
+  /** 浏览器估测的往返时延（ms），同样只有 0/50/100/200/250/300 这类离散档位 */
   rttMs?: number;
   /** navigator.connection.saveData */
   saveData?: boolean;
@@ -199,12 +222,21 @@ export function bufferedAheadOf(video: {
  * 只能自己声明；Firefox/Safari 上 navigator.connection 根本不存在。
  */
 export interface NetworkInformationLike {
-  /** 浏览器估测的最大下行带宽（Mbps） */
+  /**
+   * 浏览器估测的下行带宽（Mbps），**粗粒度档位**不是实测值。
+   * Chrome 对 4G/Wi-Fi 都给同一量级的上限，再怎么测也跳不出几个固定值。
+   */
   downlink?: number;
-  /** 浏览器估测的往返时延（ms） */
+  /** 浏览器估测的往返时延（ms），同样只有 0/50/100/150/200/250/300 几个离散档位 */
   rtt?: number;
-  /** "slow-2g" | "2g" | "3g" | "4g" */
+  /**
+   * 有效连接类型（"slow-2g" | "2g" | "3g" | "4g"）。
+   * 名字有误导性：它描述的是「等效带宽档位」，不是网络制式——
+   * 插网线的桌面 Chrome 一样报 "4g"。所以面板上叫「浏览器档位」而不是「网络类型」。
+   */
   effectiveType?: string;
+  /** 真实连接制式（"wifi" | "cellular" | "ethernet" | ...），桌面 Chrome 不提供 */
+  type?: string;
   saveData?: boolean;
 }
 
@@ -223,22 +255,180 @@ export function networkInput(
   return out;
 }
 
+/** 一个分片的传输耗时快照，字段口径与 hls.js 的 LoaderStats 一致 */
+export interface FragmentTiming {
+  /** 已加载字节数（stats.loaded） */
+  loaded?: number;
+  /** 请求发出时刻（stats.loading.start，performance.now 口径） */
+  start?: number;
+  /** 首字节到达时刻（stats.loading.first） */
+  first?: number;
+  /** 传输结束时刻（stats.loading.end） */
+  end?: number;
+}
+
+/** 一次分片采样得到的实测值 */
+export interface SpeedSample {
+  /** 扣掉首字节等待后的纯下载速度（bps） */
+  speedBps: number;
+  /** 首字节时延（ms），拿不到起始时刻时为 undefined */
+  ttfbMs?: number;
+  /**
+   * 这一片是不是从本地缓存回放的。
+   *
+   * 预取器把分片提前抓下来，播放时直接命中缓存——这时加载耗时用的是「当初预取花了多久」。
+   * 速度仍然是真的（确实从这条流下载过），但首字节时延无从谈起；
+   * 全都是缓存样本时 hint 也要改口，不能还说「近 N 个分片」像是刚测的。
+   */
+  cached?: boolean;
+  /**
+   * 这一片是预取器自己抓的时候记下的（不是当前这次播放拉的）。
+   * 同样是真实网络往返，但可能已是几十秒前的事，hint 上与刚测的区分开。
+   */
+  prefetched?: boolean;
+}
+
+/** 太小的响应（如几十字节的 init 段探测）算出来的速度噪音极大，直接丢 */
+const MIN_SAMPLE_BYTES = 8 * 1024;
+/** 传输窗口太短时 performance.now 的精度误差会放大成几倍速差 */
+const MIN_SAMPLE_MS = 30;
+
+/**
+ * 从一个分片的 LoaderStats 反推「真实的下载速度」。
+ *
+ * 为什么不用 hls 自己的 `stats.bwEstimate`：它是 `total*8000/(end-first)`，
+ * 分母含首字节等待，对 2~4 秒的短分片，300ms 的 TTFB 就能把速度算低三成。
+ * 这里用 end-first 单独算吞吐，ttfb 另算一行，两个数分开才看得懂。
+ */
+export function fragmentSpeedSample(timing: FragmentTiming): SpeedSample | null {
+  const { loaded, start, first, end } = timing;
+  if (!Number.isFinite(loaded) || (loaded as number) < MIN_SAMPLE_BYTES) return null;
+  if (!Number.isFinite(first) || !Number.isFinite(end)) return null;
+  const downloadMs = (end as number) - (first as number);
+  if (downloadMs < MIN_SAMPLE_MS) return null;
+  const speedBps = ((loaded as number) * 8000) / downloadMs;
+  if (!Number.isFinite(speedBps) || speedBps <= 0) return null;
+  const ttfb = Number.isFinite(start) && (start as number) > 0 ? (first as number) - (start as number) : undefined;
+  /*
+   * 首字节时延出现负值或超过 30 秒时是脏数据（时钟回拨、请求被复用），宁可不显示。
+   * ttfb === 0 同样丢掉：缓存命中路径把 first 设成等于 start，0 混进中位数
+   * 会把「真实往返 285ms」硬拉成个位数。
+   */
+  const ttfbMs = ttfb !== undefined && ttfb > 0 && ttfb < 30_000 ? ttfb : undefined;
+  return { speedBps, ttfbMs };
+}
+
+/** 取中位数：均值会被一次 20 Mbps 的突发拉高，中位数才是「平时有多快」 */
+function median(values: number[]): number | undefined {
+  if (values.length === 0) return undefined;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/** 采样窗口里保留多少个分片：6 个大约覆盖 15~30 秒，够稳定又跟得上网络变化 */
+export const SPEED_SAMPLE_WINDOW = 6;
+
+/** 把新样本并入滑动窗口（保留最近 window 个） */
+export function pushSpeedSample(
+  samples: readonly SpeedSample[],
+  sample: SpeedSample | null,
+  window: number = SPEED_SAMPLE_WINDOW,
+): SpeedSample[] {
+  if (!sample) return samples.slice(-window);
+  const next = [...samples, sample];
+  return next.length > window ? next.slice(next.length - window) : next;
+}
+
+/**
+ * 汇总滑动窗口：速度与首字节时延都取中位数，样本数一并返回（写进面板 hint，
+ * 让用户知道这个数是 3 个分片还是 6 个分片撑起来的）。
+ */
+export function summarizeSpeedSamples(samples: readonly SpeedSample[]): {
+  speedBps?: number;
+  ttfbMs?: number;
+  count: number;
+  /** 窗口里真正走网络的样本数：为 0 说明这几次命中全是本地缓存 */
+  liveCount: number;
+  /** 全是缓存样本时，它们是否都来自预取器（而不是播放时的缓存回放） */
+  prefetchedOnly: boolean;
+} {
+  /*
+   * 窗口里只要还有走网络的样本，就只统计它们。
+   *
+   * 缓存样本的速度是「当初预取那一刻有多快」，和此刻的网络无关；
+   * 两者混在一起取中位数，会出现「四个 8 Mbps 的预取样本 + 两个 80 Mbps 的实时样本
+   * 报出 8 Mbps」这种明显偏低的结果——用户看到的仍是错的数。
+   * 全部都是缓存样本时才退而求其次用它们，并在文案上标明「预取实测」。
+   */
+  const live = samples.filter((s) => !s.cached);
+  const pool = live.length > 0 ? live : samples;
+  const speeds = pool.map((s) => s.speedBps).filter((v) => Number.isFinite(v) && v > 0);
+  const ttfbs = live
+    .map((s) => s.ttfbMs)
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0);
+  return {
+    speedBps: median(speeds),
+    ttfbMs: median(ttfbs),
+    count: speeds.length,
+    liveCount: live.length,
+    prefetchedOnly: live.length === 0 && samples.length > 0 && samples.every((s) => s.prefetched === true),
+  };
+}
+
 /** 网络分组：浏览器不提供任何网络信息时（Firefox/Safari）返回空数组，由调用方隐藏整组 */
 export function buildNetworkRows(input: PlaybackStatsInput): StatsRow[] {
   const rows: StatsRow[] = [];
-  if (Number.isFinite(input.downlinkMbps) && (input.downlinkMbps as number) > 0) {
+  const measuredSpeed = Number.isFinite(input.measuredSpeedBps) && (input.measuredSpeedBps as number) > 0;
+  const samples = Number.isFinite(input.speedSampleCount) && (input.speedSampleCount as number) > 0
+    ? Math.round(input.speedSampleCount as number)
+    : 0;
+  if (measuredSpeed) {
+    const live = Number.isFinite(input.speedLiveCount) ? Math.max(0, Math.round(input.speedLiveCount as number)) : samples;
+    const prefetchedOnly = input.speedPrefetchedOnly === true;
+    rows.push({
+      label: '实时下载',
+      value: formatBitrate(input.measuredSpeedBps),
+      /*
+       * 实测吞吐才是用户真正想知道的「我这网跑这条流够不够」。
+       * 预取缓存命中的样本速度仍然真实（那一片确实从这条流下载过），
+       * 但它是「提前抓的时候有多快」，全命中时必须说清楚，不能让用户以为是刚测的。
+       */
+      hint: samples > 0 ? (live > 0 ? `近 ${samples} 个分片` : (prefetchedOnly ? '预取实测' : '缓存回放')) : '分片实测',
+    });
+  }
+  if (Number.isFinite(input.measuredTtfbMs) && (input.measuredTtfbMs as number) > 0) {
+    // 见过 1ms 这种数就明白得加个下限：低于 20ms 多半是本地缓存/SW 直接吐的，
+    // 不是真的跨网往返，标出来免得用户以为自家网络比同城机房还快
+    const ttfb = Math.round(input.measuredTtfbMs as number);
+    rows.push({
+      label: '首字节延迟',
+      value: `${ttfb} ms`,
+      hint: ttfb < 20 ? '疑命中本地缓存' : '分片实测',
+    });
+  }
+  /*
+   * 浏览器档位只做兜底：navigator.connection.downlink 是「有效带宽档」，
+   * Chrome 对所有宽带都报同一档，实测过与真实吞吐差 16 倍。
+   * 有实测值时再并列显示，只会让用户以为自己在用 1.4 Mbps 的网。
+   */
+  if (!measuredSpeed && Number.isFinite(input.downlinkMbps) && (input.downlinkMbps as number) > 0) {
     rows.push({
       label: '下行估速',
       value: `${(input.downlinkMbps as number).toFixed(1)} Mbps`,
-      // 这是「最大带宽的近似值」而不是实时吞吐，标清楚免得用户拿它跟码率直接对比
-      hint: '浏览器估算上限',
+      hint: '浏览器档位',
     });
   }
-  if (Number.isFinite(input.rttMs) && (input.rttMs as number) > 0) {
-    rows.push({ label: '往返时延', value: `${Math.round(input.rttMs as number)} ms` });
+  if (
+    !Number.isFinite(input.measuredTtfbMs) &&
+    Number.isFinite(input.rttMs) &&
+    (input.rttMs as number) > 0
+  ) {
+    rows.push({ label: '往返时延', value: `${Math.round(input.rttMs as number)} ms`, hint: '浏览器档位' });
   }
   const typeLabel = networkTypeLabel(input.effectiveType);
-  if (typeLabel) rows.push({ label: '网络类型', value: typeLabel, hint: '浏览器上报' });
+  // 叫「浏览器档位」而不是「网络类型」：effectiveType 报的是等效带宽档，插网线也报 4g
+  if (typeLabel) rows.push({ label: '浏览器档位', value: typeLabel, hint: '等效带宽档' });
   if (input.saveData) rows.push({ label: '省流模式', value: '已开启', warn: true });
   // 缓冲余量在没有 video 元素时也会是「未知」：不塞一行没信息量的占位，
   // 整组宁可不显示（调用方会把空分组剔除）
@@ -292,10 +482,14 @@ export function buildStatsGroups(input: PlaybackStatsInput): StatsGroup[] {
   }
   if (Number.isFinite(input.level?.measuredBitrate) && (input.level?.measuredBitrate as number) > 0) {
     bitrateRows.push({
-      label: '带宽估算',
+      label: 'ABR 估速',
       value: formatBitrate(input.level?.measuredBitrate),
-      // hls 的 ABR 就是拿这个值决定要不要降档的，它比声明码率更能解释「为什么突然糊了」
-      hint: 'hls ABR',
+      /*
+       * 这是 hls 自己喂给自动选档的平滑带宽估计（含首字节等待），和网络分组里的
+       * 「实时下载」（纯传输耗时口径）不是一回事：前者解释「为什么突然糊了」，
+       * 后者回答「我这条网到底跑多快」。两个都留着，但名字必须区分开。
+       */
+      hint: 'hls 自动选档',
     });
   }
   if (bitrateRows.length > 0) video.push(...bitrateRows);

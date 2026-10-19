@@ -1,8 +1,11 @@
 import { parseM3u8Playlist, type ParsedPlaylist } from './m3u8-parse';
+import { recordSegmentTiming } from './segment-timing';
 import {
   buildSegmentCacheKey,
   loadCacheSettings,
   putCachedSegmentResilient,
+  readCachedSegment,
+  touchMeta,
   enforceQuota,
   ensurePersistentStorage,
   type CacheSettings,
@@ -269,13 +272,39 @@ export class VideoPrefetcher {
         const task = taskQueue[cursor++];
         if (!task) return;
         const key = buildSegmentCacheKey(task.url);
+        /*
+         * 命中已经缓存的片子必须整段跳过，不能白下载一遍。
+         *
+         * 原来的问题是：到这里就无条件 fetch + arrayBuffer() + 写缓存，
+         * 于是每个窗口内所有分片都被重新下载一次——既浪费带宽，又会跟播放器抢
+         * 带宽。命中就跳过，只处理真正缺的那些（缓存里那份已经有准确的下载耗时）。
+         */
+        if (await readCachedSegment(key)) {
+          await touchMeta(key);
+          continue;
+        }
         const started = performance.now();
         try {
           const res = await fetch(task.url, { signal: this.abort.signal, headers: { Accept: '*/*' } });
           if (!res.ok) continue;
+          /*
+           * 首字节时刻：fetch 的 promise 在响应头到达时 resolve，所以此刻即 TTFB 终点。
+           * 这个数比读完整片再倒推准得多，视频信息面板的「实时下载/首字节延迟」
+           * 直接从这里取——预取与播放共用同一条流，测出来的就是真实网速。
+           */
+          const first = performance.now();
           const buffer = await res.arrayBuffer();
           if (generation !== this.generation) return;
-          const costMs = performance.now() - started;
+          const end = performance.now();
+          const costMs = end - started;
+          recordSegmentTiming(task.url, {
+            loaded: buffer.byteLength,
+            start: started,
+            first,
+            end,
+            cached: false,
+            prefetched: true,
+          });
           const result = await putCachedSegmentResilient(key, buffer, {
             episodeKey: options.episodeKey,
             index: task.index,
