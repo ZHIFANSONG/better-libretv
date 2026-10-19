@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { decryptSegment, PauseResumeController, runDownloadJob, type DownloadJobOptions } from './m3u8-downloader';
+import { decryptSegment, PauseResumeController, runDownloadJob, type DownloadJobOptions, type DownloadProgress } from './m3u8-downloader';
 import { parseM3u8Playlist } from './m3u8-parse';
 
 const KEY = crypto.getRandomValues(new Uint8Array(16));
@@ -202,8 +202,9 @@ describe('runDownloadJob · 源站缺片与存储错误', () => {
     await expect(runDownloadJob(jobOptions())).rejects.toThrow(/存储空间可能不足/);
   });
 
-  it('环境无 Cache Storage（HTTP 访问 / 老浏览器）时给出可读提示', async () => {
-    // 不提供 caches：等价于非安全上下文。旧实现会抛裸的 ReferenceError: caches is not defined
+  it('环境无 Cache Storage（HTTP 访问 / 老浏览器）：退化为串行边下边写而非直接失败', async () => {
+    // 不提供 caches：等价于非安全上下文。旧行为是抛「不支持浏览器缓存」，
+    // 现改为串行下载 + 立即写出（无断点、并发 1），功能仍可用
     vi.stubGlobal('caches', undefined);
     vi.stubGlobal(
       'fetch',
@@ -213,8 +214,42 @@ describe('runDownloadJob · 源站缺片与存储错误', () => {
         return new Response(new Uint8Array([0x47]), { status: 200 });
       })
     );
+    const written: number[] = [];
+    const progress: DownloadProgress[] = [];
 
-    await expect(runDownloadJob(jobOptions())).rejects.toThrow(/不支持浏览器缓存/);
+    await runDownloadJob(
+      jobOptions({
+        target: {
+          kind: 'memory',
+          write: async (d) => void written.push(d.byteLength),
+          close: async () => {},
+          abort: async () => {},
+        },
+        onProgress: (p) => progress.push(p),
+      })
+    );
+
+    expect(written).toHaveLength(3);
+    expect(progress.at(-1)?.status).toBe('done');
+  });
+
+  it('proxy 开启：m3u8 经 /api/proxy 拉取（直连被 CORS / 混合内容拦下时的兜底）', async () => {
+    stubCaches();
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.startsWith('/api/proxy?')) return new Response(PLAYLIST, { status: 200 });
+        return new Response(new Uint8Array([0x47]), { status: 200 });
+      })
+    );
+
+    await runDownloadJob(jobOptions({ proxy: true }));
+
+    expect(calls[0]).toBe(`/api/proxy?url=${encodeURIComponent('https://cdn.example.com/index.m3u8')}`);
+    expect(calls).not.toContain('https://cdn.example.com/index.m3u8');
   });
 
   it('跨域或域名不可达导致的 Failed to fetch 翻译成「建议更换来源」', async () => {

@@ -1,3 +1,4 @@
+import { isProxiedUri, PROXY_BASE } from './m3u8';
 import { parseM3u8Playlist, type ParsedPlaylist } from './m3u8-parse';
 import { StreamingTransmuxer } from './mp4-transmuxer';
 
@@ -111,6 +112,30 @@ async function fetchSegment(url: string, signal: AbortSignal): Promise<ArrayBuff
 }
 
 /**
+ * 取回单个分片（含退避重试）。返回 undefined 表示任务已中止，调用方应直接 return。
+ * 4xx 视为源站确定性缺失：立刻抛错并提示换源，不做无谓的退避重试。
+ */
+async function fetchSegmentWithRetry(
+  url: string,
+  index: number,
+  signal: AbortSignal
+): Promise<ArrayBuffer | undefined> {
+  for (let retry = 0; retry < MAX_SEGMENT_RETRIES; retry++) {
+    if (signal.aborted) return undefined;
+    try {
+      return await fetchSegment(url, signal);
+    } catch (err) {
+      if (signal.aborted) return undefined;
+      if (err instanceof SegmentFetchError && !err.retryable) {
+        throw new Error(`分片 ${index} 源站缺失（${err.message}），该来源无法完整下载，建议更换来源`);
+      }
+      await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
+    }
+  }
+  throw new Error(`分片 ${index} 下载失败（已重试 ${MAX_SEGMENT_RETRIES} 次）`);
+}
+
+/**
  * HLS AES-128 分片解密（AES-CBC / PKCS7）。
  * IV 规则（RFC 8216 §4.3.2.4）：KEY 带IV 属性时全部分片共用；**无 IV 属性时
  * IV = 分片的媒体序列号（16 字节大端）**，逐分片递增——恒用零向量会导致
@@ -152,6 +177,44 @@ export interface DownloadJobOptions {
   onProgress: (p: DownloadProgress) => void;
   /** 在用户手势内选好的保存目标 */
   target: import('./download-saver').SaveTarget;
+  /**
+   * 经服务器中转下载：m3u8 改由 /api/proxy 拉取，返回内容里的分片/key 已按代理
+   * 地址重写，于是整集流量同源经过服务器——源站跨域 / 防盗链 / 混合内容导致
+   * 直连失败时的兜底。默认关闭（服务器带宽成本由部署者承担）。
+   */
+  proxy?: boolean;
+}
+
+/** 无 Cache Storage 的降级：串行下载并立即写出，不落缓存（无断点、并发 1） */
+async function runStreamingJob(ctx: {
+  parsed: ParsedPlaylist;
+  format: 'TS' | 'MP4';
+  aesKey?: ArrayBuffer;
+  target: DownloadJobOptions['target'];
+  pause: PauseResumeController;
+  signal: AbortSignal;
+  total: number;
+  report: (current: number, total: number, status: DownloadProgress['status']) => void;
+}): Promise<void> {
+  const { parsed, format, aesKey, target, pause, signal, total, report } = ctx;
+  // MP4 转封装同样是流式的：push 一片立刻产出 fMP4 片段写出，无需聚合整集
+  const transmuxer =
+    format === 'MP4' ? new StreamingTransmuxer(target, { durationSeconds: parsed.totalDuration }) : undefined;
+  for (let i = 1; i <= total; i++) {
+    if (signal.aborted) return;
+    await pause.waitIfPaused();
+    const buffer = await fetchSegmentWithRetry(parsed.segments[i - 1].url, i, signal);
+    if (!buffer) return;
+    let data: ArrayBuffer = buffer;
+    if (aesKey && parsed.aesConf) {
+      data = await decryptSegment(buffer, aesKey, parsed.aesConf.iv, parsed.mediaSequence, i - 1);
+    }
+    if (transmuxer) await transmuxer.pushAndTransmux(new Uint8Array(data));
+    else await target.write(new Uint8Array(data));
+    report(i, total, 'downloading');
+  }
+  if (transmuxer) await transmuxer.finish();
+  else await target.close();
 }
 
 /**
@@ -202,11 +265,15 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
   };
 
   // —— 解析（重试 2 次） ——
+  // 代理模式：m3u8 经 /api/proxy 拉取，代理会把内容里的分片/key 一并重写为代理
+  // 地址，因此后续分片请求自动同源——这是直连被 CORS / 混合内容拦下时的兜底
+  // （与播放器一致：player-shell 遇致命直连错误也会改走代理）。
+  const playlistUrl = opts.proxy && !isProxiedUri(url) ? `${PROXY_BASE}${encodeURIComponent(url)}` : url;
   let parsed: ParsedPlaylist;
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      parsed = await parseM3u8Playlist(url, 0, undefined, { stripLeadAd: true });
+      parsed = await parseM3u8Playlist(playlistUrl, 0, undefined, { stripLeadAd: true });
       lastErr = undefined;
       break;
     } catch (err) {
@@ -229,10 +296,15 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
     aesKey = await res.arrayBuffer();
   }
 
-  // —— 并发下载分片（Cache Storage 断点） ——
+  // —— 无 Cache Storage（HTTP 页面 / 老浏览器）：退化为串行「边下边写」 ——
+  // 没有断点、并发为 1，但功能可用；原先这条路径是直接失败的
   if (!supportsChunkCache()) {
-    throw new Error('当前环境不支持浏览器缓存（需通过 HTTPS 访问或更换支持 Cache Storage 的浏览器），无法下载');
+    await runStreamingJob({ parsed, format, aesKey, target, pause, signal: jobSignal, total, report });
+    if (!jobSignal.aborted) report(total, total, 'done');
+    return;
   }
+
+  // —— 并发下载分片（Cache Storage 断点） ——
   const cache = await caches.open(DL_CACHE_NAME);
   const chunkKey = (index: number) => dlChunkKey(taskId, index);
   let cursor = 0;
@@ -255,26 +327,8 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
         // 已在恢复预统计里计入，不再累加——否则续传时进度重复计数超过 100%
         continue;
       }
-      const seg = parsed.segments[index - 1];
-      let buffer: ArrayBuffer | undefined;
-      for (let retry = 0; retry < MAX_SEGMENT_RETRIES; retry++) {
-        if (jobSignal.aborted) return;
-        try {
-          buffer = await fetchSegment(seg.url, jobSignal);
-          break;
-        } catch (err) {
-          if (jobSignal.aborted) return;
-          // 源站没有这片（404/410 等 4xx）：重试再多次也是同样结果。立刻整集失败
-          // 并把原因说清楚——用户需要的是「换源」，不是白等 6 秒后一句笼统的失败
-          if (err instanceof SegmentFetchError && !err.retryable) {
-            throw new Error(`分片 ${index} 源站缺失（${err.message}），该来源无法完整下载，建议更换来源`);
-          }
-          await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
-        }
-      }
-      if (!buffer) {
-        throw new Error(`分片 ${index} 下载失败（已重试 ${MAX_SEGMENT_RETRIES} 次）`);
-      }
+      const buffer = await fetchSegmentWithRetry(parsed.segments[index - 1].url, index, jobSignal);
+      if (!buffer) return;
       try {
         await cache.put(
           new Request(chunkKey(index)),

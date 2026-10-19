@@ -12,7 +12,9 @@ import {
   supportsChunkCache,
   type DownloadProgress,
 } from '@/lib/m3u8-downloader';
+import { loadDownloadSettings, saveDownloadSettings } from '@/lib/download-settings';
 import { detectSavingCapability, pickSaveTarget } from '@/lib/download-saver';
+import { Switch } from './settings-shared';
 
 /**
  * 全局下载管理器（UI 采用本站 Drawer 模式）：
@@ -47,6 +49,7 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
   const [tasks, setTasks] = useState<DownloadTaskEntry[]>([]);
   const [capability, setCapability] = useState<'fs-access' | 'memory'>('memory');
   const [chunkCache, setChunkCache] = useState(true);
+  const [proxy, setProxy] = useState(false);
   const running = useRef(new Map<string, RunningHandle>());
 
   const refresh = useCallback(() => {
@@ -57,6 +60,12 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
     await db.downloads.update(id, { ...patch, updatedAt: Date.now() });
     refresh();
   }, [refresh]);
+
+  // 下载设置在挂载时读取：抽屉关闭时 header / 播放页也会派发入队事件，
+  // 若只在打开抽屉时才读，关闭状态下加入的任务会漏掉用户的中转偏好
+  useEffect(() => {
+    setProxy(loadDownloadSettings().proxy);
+  }, []);
 
   // —— 任务启动：选目标 → runDownloadJob ——
   const startTask = useCallback(
@@ -88,6 +97,9 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
         format: entry.format,
         signal: abort.signal,
         pause,
+        // 中转开关在任务启动时取当前值：切换只影响之后开始的任务，
+        // 已在跑的任务保持原有链路，不会下到一半换源
+        proxy,
         onProgress,
         // hasTarget=false（刷新恢复/排队恢复）时目标已在手势内由「继续」按钮选好
         target: (globalThis as unknown as { __dlSaveTarget?: { id: string; target: import('@/lib/download-saver').SaveTarget } }).__dlSaveTarget?.id === entry.id
@@ -120,8 +132,9 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
           scheduleNext();
         });
     },
+    // scheduleNext 刻意不进依赖：它与 startTask 相互引用，进依赖会让回调每帧重建
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [toast, updateEntry]
+    [toast, updateEntry, proxy]
   );
 
   // —— 全局并发调度 ——
@@ -201,9 +214,20 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
     if (!isOpen) return;
     setCapability(detectSavingCapability());
     setChunkCache(supportsChunkCache());
+    // 顺带重读下载设置：多标签页下另一处改了开关也能同步过来
+    setProxy(loadDownloadSettings().proxy);
     refresh();
     scheduleNext();
   }, [isOpen, refresh, scheduleNext]);
+
+  const onToggleProxy = (next: boolean) => {
+    // 以落库结果为准回写 state：存储不可用（隐私模式）时 UI 不能假装已保存
+    setProxy(saveDownloadSettings({ proxy: next }).proxy);
+    toast(
+      next ? '已开启下载中转，新任务经服务器转发' : '已关闭下载中转，新任务直连源站',
+      'info'
+    );
+  };
 
   const onPauseResume = async (entry: DownloadTaskEntry) => {
     const handle = running.current.get(entry.id);
@@ -257,6 +281,16 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
   return (
     <Drawer open={isOpen} onClose={onClose} title="下载管理" width="max-w-lg">
       <div className="space-y-3">
+        <div className="card p-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm text-content">经服务器中转下载</p>
+            <p className="text-xs text-faint">
+              直连被跨域 / 防盗链 / 混合内容拦下时开启：整集流量（含分片与密钥）经服务器转发，
+              带宽由部署者承担。仅对之后开始的任务生效。
+            </p>
+          </div>
+          <Switch checked={proxy} onChange={onToggleProxy} label="经服务器中转下载" />
+        </div>
         <p className="text-xs text-faint">
           保存能力：{capability === 'fs-access' ? '磁盘直写（边下边存）' : '内存聚合（完成后浏览器下载）'}
           {chunkCache ? ' · 支持断点续传' : ' · 当前环境无断点缓存（需 HTTPS 访问）'} ·
