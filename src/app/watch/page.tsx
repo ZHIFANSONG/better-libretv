@@ -360,7 +360,8 @@ function WatchContent() {
                 {videoInfo?.typeName && <span>{videoInfo.typeName}</span>}
                 {videoInfo?.area && <span>{videoInfo.area}</span>}
                 {videoInfo?.director && <span>导演 {videoInfo.director}</span>}
-                {episodes.length > 0 && <span>共 {episodes.length} 集</span>}
+                {/* 集数不再在这里重复：上面 g-tags 有「全 N 集」，标题行有「第 x/N 集」，
+                    右侧选集卡也写着 N 集 —— 第四遍没有任何新信息 */}
               </div>
               {/* 简介默认限高 3~4 行保住首屏；超长的给一个「展开」，不要让人对着半截文字猜结局 */}
               {descText && (
