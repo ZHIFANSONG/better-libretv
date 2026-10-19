@@ -5,6 +5,9 @@ import { api } from '@/lib/client-api';
 import type { SearchResultItem, VideoDetail } from '@/lib/types';
 import { isSourceDisabled } from '@/lib/store';
 import { latencyLevel } from '@/lib/source-switch';
+import { qualityKey } from '@/lib/quality';
+import { formatRemarks } from '@/lib/remarks';
+import { QualityBadge } from './quality-badge';
 import { SmartImage } from './smart-image';
 import { useAppStore, resolveSource } from '@/lib/store';
 import { useToast } from './toast';
@@ -64,6 +67,56 @@ export function DetailModal({
   const [posterFailed, setPosterFailed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * 选源时的画质探测：弹窗一打开就探，因为「这堆源里哪个画质高」正是用户在
+   * 这个界面要做的判断（原来只能靠源名猜）。结果直接进全局缓存，
+   * 关掉弹窗再到搜索卡片 / 换源卡上都还在。
+   */
+  const [qualityProbing, setQualityProbing] = useState(false);
+  const qualityAbortRef = useRef<AbortController | null>(null);
+  const sources = group?.items ?? (item ? [item] : []);
+  const qualitySignature = sources.map((s) => `${s.sourceKey}:${s.vodId}`).join(',');
+
+  useEffect(() => {
+    if (!qualitySignature) return;
+    const targets = sources
+      .map((s) => {
+        const source = resolveSource(store, s.sourceKey, { url: s.sourceUrl, name: s.sourceName });
+        return source ? { source, id: s.vodId } : undefined;
+      })
+      .filter((v): v is { source: NonNullable<ReturnType<typeof resolveSource>>; id: string } => Boolean(v));
+    if (targets.length === 0) return;
+
+    const controller = new AbortController();
+    qualityAbortRef.current?.abort();
+    qualityAbortRef.current = controller;
+    setQualityProbing(true);
+    const collected: Record<string, import('@/lib/types').QualityEntry> = {};
+    api
+      .qualityProbeStream(
+        targets,
+        (result) => {
+          collected[qualityKey(result.sourceKey, result.vodId)] = {
+            height: result.height,
+            from: 'probe',
+            error: result.error,
+            timestamp: Date.now(),
+          };
+        },
+        controller.signal
+      )
+      .catch(() => {
+        /* 探测失败不影响选源：徽章就是不显示 */
+      })
+      .finally(() => {
+        // 一次性落库，避免 persist 逐条序列化整个画质表
+        if (Object.keys(collected).length > 0) useAppStore.getState().setQuality(collected);
+        setQualityProbing(false);
+      });
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qualitySignature]);
 
   // 打开时把焦点移入弹窗、Tab 圈闭在弹窗内、关闭后归还焦点
   useFocusTrap(Boolean(item), panelRef);
@@ -147,7 +200,8 @@ export function DetailModal({
     info?.area && ['地区', info.area],
     info?.director && ['导演', info.director],
     info?.actor && ['主演', info.actor],
-    info?.remarks && ['备注', info.remarks],
+    // 备注与卡片同源，同样归一化，避免同一部剧在两处显示不同文案
+    formatRemarks(info?.remarks) && ['备注', formatRemarks(info?.remarks)!],
   ].filter(Boolean) as [string, string][];
 
   return (
@@ -218,6 +272,10 @@ export function DetailModal({
                       >
                         {h && <i className={cn('g-dot', latencyLevel({ ok: h.ok, ms: h.ms }))} />}
                         {it.sourceName || it.sourceKey}
+                        <QualityBadge
+                          entry={store.qualityMap?.[qualityKey(it.sourceKey, it.vodId)]}
+                          loading={qualityProbing && !store.qualityMap?.[qualityKey(it.sourceKey, it.vodId)]}
+                        />
                         {it.remarks ? <em>{it.remarks}</em> : null}
                       </button>
                     );

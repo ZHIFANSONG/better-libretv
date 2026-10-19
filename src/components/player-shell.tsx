@@ -12,6 +12,7 @@ import {
 } from '@/lib/video-prefetcher';
 import { loadCacheSettings } from '@/lib/video-cache';
 import { formatTime } from '@/lib/utils';
+import { qualityLabel } from '@/lib/quality';
 
 /**
  * 播放器外壳：ArtPlayer + hls.js（旧版 player.js 的 React 化）。
@@ -38,6 +39,12 @@ interface PlayerShellProps {
   onTimeUpdate?: (position: number, duration: number) => void;
   onEnded?: () => void;
   onPause?: (position: number, duration: number) => void;
+  /**
+   * 实测画质（视频高度，像素）。
+   * 单码率 m3u8 / 直链的分辨率只能等解码后才知道，播放一次后回写缓存，
+   * 下次搜索同一部剧就能直接显示画质，不必再探测。
+   */
+  onQuality?: (height: number) => void;
   /** 恢复策略判源不可用（重试耗尽/格式硬失败）时回调：父级弹出换源面板 */
   onRequestSwitchSource?: (reason: string) => void;
   /**
@@ -126,6 +133,7 @@ export function PlayerShell({
   onTimeUpdate,
   onEnded,
   onPause,
+  onQuality,
   onRequestSwitchSource,
   introSec = 0,
   outroSec = 0,
@@ -147,13 +155,18 @@ export function PlayerShell({
   // 始终持有最新 props/回调，避免重建播放器
   const propsRef = useRef({
     url, title, adFilter, autoplayNext, episodeKey, nextUrl, nextEpisodeKey,
-    getRestorePosition, onTimeUpdate, onEnded, onPause, onRequestSwitchSource,
+    getRestorePosition, onTimeUpdate, onEnded, onPause, onQuality, onRequestSwitchSource,
     introSec, outroSec, onUndoIntro,
   });
   propsRef.current = {
     url, title, adFilter, autoplayNext, episodeKey, nextUrl, nextEpisodeKey,
-    getRestorePosition, onTimeUpdate, onEnded, onPause, onRequestSwitchSource,
+    getRestorePosition, onTimeUpdate, onEnded, onPause, onQuality, onRequestSwitchSource,
     introSec, outroSec, onUndoIntro,
+  };
+
+  /** 上报实测画质：多次上报取大值由调用方决定，这里只管把拿到的高度传出去 */
+  const reportQuality = (height: number) => {
+    if (height > 0) propsRef.current.onQuality?.(height);
   };
 
   // 跨集共享、每次换集重置的播放链路状态
@@ -240,6 +253,157 @@ export function PlayerShell({
   };
 
   /**
+   * —— 控制栏画质菜单 ——
+   *
+   * 画质信息只在 m3u8 内部，用户原来在播放器上完全看不到「现在放的是几 P」，
+   * 也没法在多码率源里手动锁档（ABR 只会按带宽自动挑，网络一抖就掉到 360P 且不再升）。
+   *
+   * 做法：读 hls.levels 的档位表，渲染成右上角一个按钮 + 下拉。
+   * 之所以不用 Artplayer 的 setting 面板：那是「设置 > 二级面板」，要看画质得点两下，
+   * 而画质是播放时最常切的东西；也不用 art.quality —— 它靠换 URL 切档，
+   * 对同一条 master playlist 只会重新 loadSource，等于重开一集（进度、缓冲全丢）。
+   * 这里直接写 hls.currentLevel，在同一个 MediaSource 内切档，画面不断。
+   *
+   * 档位表在 MANIFEST_PARSED 之前是空的，所以由 setupHls 主动调 refreshQualityMenu()，
+   * 单码率源永远只有 1 档 —— 那种情况直接把菜单藏起来，不给用户点一个没得选的按钮。
+   */
+  const qualityMenuRef = useRef<{
+    root: HTMLDivElement;
+    button: HTMLButtonElement;
+    list: HTMLDivElement;
+    key: string;
+  } | null>(null);
+  const qualityMenuDocHandlerRef = useRef<((e: MouseEvent) => void) | null>(null);
+
+  const closeQualityMenu = () => {
+    const menu = qualityMenuRef.current;
+    if (!menu) return;
+    menu.list.style.display = 'none';
+    menu.root.classList.remove('open');
+  };
+
+  const refreshQualityMenu = () => {
+    const hls = hlsRef.current;
+    const art = artRef.current;
+    if (!hls || !art) return;
+    const $player = art.template?.$player as HTMLElement | undefined;
+    if (!$player) return;
+
+    // level.height 在单码率源上常为 0（清单里没写 RESOLUTION），此时按 level 下标降级显示
+    const levels = hls.levels ?? [];
+    const options = levels.map((level, index) => ({
+      index,
+      label:
+        typeof level.height === 'number' && level.height > 0
+          ? qualityLabel(level.height) || `${level.height}P`
+          : `档位 ${index + 1}`,
+      bitrate: level.bitrate,
+    }));
+
+    // 档位数 < 2 就没有「选」的意义：移除按钮，避免留一个空胶囊
+    if (options.length < 2) {
+      const menu = qualityMenuRef.current;
+      if (menu) {
+        menu.root.remove();
+        qualityMenuRef.current = null;
+      }
+      return;
+    }
+
+    const currentLevel = hls.currentLevel; // -1 = 自动
+    const key = `${currentLevel}|${art.video?.videoHeight ?? 0}|${options.map((o) => o.label).join(',')}`;
+    let menu = qualityMenuRef.current;
+    if (menu && menu.key === key && menu.root.isConnected) return;
+
+    if (!menu) {
+      const root = document.createElement('div');
+      root.className = 'g-qmenu';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'g-qmenu-btn';
+      const list = document.createElement('div');
+      list.className = 'g-qmenu-list';
+      list.style.display = 'none';
+      /*
+       * 控制栏点击会冒泡到播放器画面，触发 Artplayer 的「点画面暂停/播放」。
+       * 这里统一拦掉，否则点一下「画质」就把视频暂停了。
+       */
+      const swallow = (e: Event) => e.stopPropagation();
+      root.addEventListener('click', swallow);
+      root.addEventListener('mousedown', swallow);
+      root.addEventListener('dblclick', swallow);
+
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = list.style.display !== 'none';
+        if (open) {
+          closeQualityMenu();
+        } else {
+          list.style.display = '';
+          root.classList.add('open');
+        }
+      });
+      // 点面板外收起。监听挂在 document 上，卸载时摘掉（见下方 useEffect）
+      const onDocClick = (e: MouseEvent) => {
+        if (!root.contains(e.target as Node)) closeQualityMenu();
+      };
+      qualityMenuDocHandlerRef.current = onDocClick;
+      document.addEventListener('click', onDocClick);
+
+      root.appendChild(button);
+      root.appendChild(list);
+      $player.appendChild(root);
+      menu = { root, button, list, key: '' };
+      qualityMenuRef.current = menu;
+    }
+
+    menu.key = key;
+    // 按钮上直接写当前画质：正常情况下用户不需要展开菜单就已经知道自己在看几 P
+    const playing = art.video?.videoHeight ?? 0;
+    const current = currentLevel >= 0 ? options[currentLevel] : undefined;
+    const headline = (current?.label ?? qualityLabel(playing)) || (playing ? `${playing}P` : '画质');
+    menu.button.textContent = currentLevel < 0 ? `自动 ${headline === '画质' ? '' : `· ${headline}`}`.trim() : headline;
+    menu.button.title = '切换清晰度';
+
+    menu.list.textContent = '';
+    const makeItem = (label: string, active: boolean, onPick: () => void, hint?: string) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = active ? 'g-qmenu-item on' : 'g-qmenu-item';
+      item.textContent = label;
+      if (hint) {
+        const em = document.createElement('em');
+        em.textContent = hint;
+        item.appendChild(em);
+      }
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onPick();
+        closeQualityMenu();
+      });
+      menu!.list.appendChild(item);
+    };
+
+    makeItem('自动', currentLevel < 0, () => {
+      const self = hlsRef.current;
+      if (!self) return;
+      // 回到自动之前先放开手动限制，否则 hls 会继续锁在 currentLevel 上
+      self.currentLevel = -1;
+      self.nextLevel = -1;
+      refreshQualityMenu();
+    });
+    options.forEach((o) => {
+      makeItem(o.label, currentLevel === o.index, () => {
+        const self = hlsRef.current;
+        if (!self) return;
+        self.currentLevel = o.index;
+        showHint(`已切换到 ${o.label}`);
+        refreshQualityMenu();
+      });
+    });
+  };
+
+  /**
    * 初始化/切换 HLS。allowProxyFallback：直连致命网络错误（CORS/防盗链/分片被拒）时，
    * 自动改走同源 cookie 鉴权的 /api/proxy 重试一次。
    * 注意：不销毁 ArtPlayer，只销毁并重建 hls，从而保留网页全屏等播放器状态。
@@ -308,10 +472,30 @@ export function PlayerShell({
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       recoveryRef.current?.markHealthy();
+      // master playlist 的档位高度：多码率源在这里就能拿到上限
+      const heights = hls.levels
+        .map((level) => level.height)
+        .filter((h): h is number => typeof h === 'number' && h > 0);
+      if (heights.length > 0) reportQuality(Math.max(...heights));
+      // 档位表就绪后立刻刷新控制栏画质菜单（单码率源在这里只有 1 档，菜单就不出现）
+      void refreshQualityMenu();
       void restoreAndStart();
     });
     // 播放链路恢复（FRAG_LOADED / MANIFEST_PARSED）：静默窗外清零连续失败计数
     hls.on(Hls.Events.FRAG_LOADED, () => recoveryRef.current?.markHealthy());
+    // 单码率源在 MANIFEST 阶段拿不到 height（清单尚未解析），这里补一次。
+    // 注意 data.level 是档位下标，分辨率在 levelInfo 上
+    hls.on(Hls.Events.LEVEL_LOADED, (_evt, data) => {
+      const height = data.levelInfo?.height;
+      if (typeof height === 'number') reportQuality(height);
+    });
+    /*
+     * ABR 自动切档本身不经过我们的菜单：不放这条监听，按钮上会一直显示起播那一档，
+     * 用户看着「1080P」实际早已掉到 360P —— 比不显示更糟。
+     */
+    hls.on(Hls.Events.LEVEL_SWITCHED, () => {
+      void refreshQualityMenu();
+    });
     // 分片真正进入 MSE buffer 才算媒体恢复：此时视频轨可渲染，错误态可解除
     hls.on(Hls.Events.FRAG_BUFFERED, () => {
       mediaHealthyRef.current = true;
@@ -444,6 +628,22 @@ export function PlayerShell({
     });
     artRef.current = art;
 
+    /**
+     * 读解码后的真实分辨率。
+     * 单码率 m3u8 / mp4 直链的清单里没有画质字段，服务端无论如何探测不到，
+     * 只有 video 元素的 videoHeight 是真的——这是「播放一次即记住画质」链路的唯一数据源。
+     * loadedmetadata 在部分浏览器上 videoHeight 仍为 0，因此 canplay / playing / resize
+     * 各补一次机会，不能只赌单一事件时机。
+     */
+    const reportVideoHeight = () => {
+      const height = art.video?.videoHeight;
+      if (typeof height === 'number' && height > 0) reportQuality(height);
+    };
+    art.on('video:canplay', reportVideoHeight);
+    art.on('video:playing', reportVideoHeight);
+    // resize 不在 ArtPlayer 的视频事件转发表里，直接挂原生事件
+    art.video?.addEventListener('resize', reportVideoHeight);
+
     /*
      * —— 全屏兜底（所有平台都装）——
      *
@@ -570,6 +770,7 @@ export function PlayerShell({
        * 流卡住时又变成「点了全屏没反应」。
        */
       installFullscreenOverride();
+      reportVideoHeight();
     });
 
     art.on('video:playing', () => {
@@ -758,6 +959,14 @@ export function PlayerShell({
       el?.removeEventListener('touchcancel', onTouchEnd);
       el?.removeEventListener('touchmove', onTouchMove);
       el?.removeEventListener('contextmenu', onContextMenu);
+      art.video?.removeEventListener('resize', reportVideoHeight);
+      // 画质菜单是我们直接塞进播放器 DOM 的节点，必须自己摘干净，否则残留到下一集
+      if (qualityMenuDocHandlerRef.current) {
+        document.removeEventListener('click', qualityMenuDocHandlerRef.current);
+        qualityMenuDocHandlerRef.current = null;
+      }
+      qualityMenuRef.current?.root.remove();
+      qualityMenuRef.current = null;
       hlsRef.current?.destroy();
       hlsRef.current = null;
       recoveryRef.current?.dispose();

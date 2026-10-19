@@ -1,10 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import type { SearchResultItem } from '@/lib/types';
-import { useAppStore } from '@/lib/store';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { QualityEntry, SearchResultItem, SourceConfig } from '@/lib/types';
+import { api } from '@/lib/client-api';
+import { useAppStore, readQualities } from '@/lib/store';
+import { QUALITY_FAIL_TTL_MS, qualityKey } from '@/lib/quality';
+import { inferGroupRemarks } from '@/lib/remarks';
 import { latencyLevel, latencyText } from '@/lib/source-switch';
 import { cn } from '@/lib/utils';
+import { QualityBadge } from './quality-badge';
 import { SmartImage } from './smart-image';
 
 // —— 跨源同名聚合 ——
@@ -26,7 +30,9 @@ function buildGroup(name: string, year: string | undefined, items: SearchResultI
     year,
     typeName: items.find((i) => i.typeName)?.typeName,
     pic: items.find((i) => i.pic)?.pic,
-    remarks: items.find((i) => i.remarks)?.remarks,
+    // 同一部剧各源文案详略不同（「全34集」/「完结」/「更新至34集」），推到统一结论，
+    // 否则同一部剧的来源列表会看起来状态各异
+    remarks: inferGroupRemarks(items.map((i) => i.remarks)),
     items,
   };
 }
@@ -70,12 +76,15 @@ export function AggregatedCard({
   group,
   onOpen,
   onPlaySource,
+  sources,
 }: {
   group: AggregatedGroup;
   /** 点卡片本体：打开详情弹窗（可以看到简介、分集、全部来源） */
   onOpen: (item: SearchResultItem, group: AggregatedGroup) => void;
   /** 点某一个来源胶囊：直接用这个源的资源开播（v14 起跳 /watch，不再本页内嵌播放） */
   onPlaySource?: (item: SearchResultItem) => void;
+  /** 完整源配置：探测画质需要 source.url / source.detail，搜索结果里只带 sourceUrl */
+  sources?: SourceConfig[];
 }) {
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const customImageProxy = useAppStore((s) => s.customImageProxy);
@@ -90,6 +99,130 @@ export function AggregatedCard({
     [group.items]
   );
   const count = group.items.length;
+
+  // 画质状态：按 `sourceKey:vodId` 存放。探测完成后一定会有条目
+  // （height 缺失代表「测不出」），所以「无条目」= 尚未探测。
+  const [qualities, setQualities] = useState<Record<string, QualityEntry>>({});
+  const [probing, setProbing] = useState<Record<string, true>>({});
+  // 正在探测中的键：只用于防同一个键并发重复请求，拿到结果或被掐掉就移除
+  const inflightRef = useRef<Set<string>>(new Set());
+  // 拿到终态结果（有画质 / 测不出 / 失败）的键 → 时间。折叠再展开不重复打源站；
+  // 失败是瞬时的，永久锁死会让偶发失败的源再也拿不到画质，所以冷却满 QUALITY_FAIL_TTL_MS 才重试。
+  // 只记「拿到结果」的键：请求被掐掉时没有终态，记下来会让该源被锁到冷却结束
+  const settledRef = useRef<Map<string, number>>(new Map());
+  // 当前批次的键：被下一批掐掉时，靠它把未完成的键解锁
+  const batchRef = useRef<Set<string>>(new Set());
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  /**
+   * 按需探测各来源画质（本卡片挂载即发起，或用户点了「测画质」）。
+   *
+   * 不做全页预探测：一次搜索可能几十部片 × 十几个源，全量打会把源站和服务端都压垮，
+   * 而用户真正关心的只有他看到的这一屏。所以只在卡片上点了「测画质」时才发起，
+   * 以及已知来源少于 4 个（展开一目了然）时随卡片一起探。
+   */
+  const startQualityProbe = () => {
+    const now = Date.now();
+    const cached = readQualities(group.items.map((i) => ({ sourceKey: i.sourceKey, vodId: i.vodId })));
+    setQualities((prev) => ({ ...cached, ...prev }));
+
+    const selectPending = () =>
+      group.items.filter((i) => {
+        const key = qualityKey(i.sourceKey, i.vodId);
+        const known = cached[key] ?? qualities[key];
+        // 已有结论就不再探：成功和「测不出」都是终态，重探也还是同一个结果
+        if (known && !known.error) return false;
+        // 已在飞：等这一批的结果，不重复打
+        if (inflightRef.current.has(key)) return false;
+        const last = settledRef.current.get(key);
+        if (last === undefined) return true;
+        // 探测失败过：冷却满 QUALITY_FAIL_TTL_MS 才重试，
+        // 否则每次展开都要重打一遍挂掉的源，白等一轮超时
+        return now - last > QUALITY_FAIL_TTL_MS;
+      });
+
+    // 没有新要探的键：让上一批跑完，不打断它（结果回来照样更新徽章）
+    if (selectPending().length === 0) return;
+
+    // 掐掉上一批：本轮要重发，留着只会互相打断。
+    // 同时把它未拿到结果的键解锁——否则这些键既不在飞、又因 inflight 选不进本批，
+    // 徽章会一直空着，直到冷却结束才有机会重探
+    for (const k of batchRef.current) inflightRef.current.delete(k);
+    batchRef.current.clear();
+    abortRef.current?.abort();
+
+    const items = selectPending()
+      .map((i) => {
+        const key = qualityKey(i.sourceKey, i.vodId);
+        const source =
+          sources?.find((s) => s.key === i.sourceKey) ??
+          // 源配置缺失时用搜索结果自带的地址兜底（缺 detail，走不了详情页降级）
+          (i.sourceUrl ? { key: i.sourceKey, name: i.sourceName, url: i.sourceUrl } : undefined);
+        return source ? { key, item: { source, id: i.vodId } } : undefined;
+      })
+      .filter((v): v is { key: string; item: { source: SourceConfig; id: string } } => Boolean(v));
+
+    if (items.length === 0) return;
+    const keys = items.map((i) => i.key);
+    // 探测结果先攒在这里，流结束时一次性写全局缓存：逐条写会让 persist
+    // 把整个状态（含最多 400 条画质记录）序列化十几遍
+    const collected: Record<string, QualityEntry> = {};
+    const batch = new Set(keys);
+    for (const k of keys) inflightRef.current.add(k);
+    batchRef.current = batch;
+    setProbing((prev) => {
+      const next = { ...prev };
+      for (const k of keys) next[k] = true;
+      return next;
+    });
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const finish = (targets: string[]) => {
+      setProbing((prev) => {
+        const next = { ...prev };
+        for (const k of targets) delete next[k];
+        return next;
+      });
+    };
+
+    api
+      .qualityProbeStream(
+        items.map((i) => i.item),
+        (result) => {
+          const key = qualityKey(result.sourceKey, result.vodId);
+          const entry: QualityEntry = {
+            height: result.height,
+            from: 'probe',
+            error: result.error,
+            timestamp: Date.now(),
+          };
+          // 逐条更新本卡片的徽章（流式效果保留）
+          setQualities((prev) => ({ ...prev, [key]: entry }));
+          collected[key] = entry;
+          // 拿到终态：解锁并发标记，并记下冷却起点
+          inflightRef.current.delete(key);
+          settledRef.current.set(key, Date.now());
+          finish([key]);
+        },
+        controller.signal
+      )
+      .catch(() => {
+        // 探测整批失败（离线/未登录）或被新一轮掐掉：保持「未知」，不打断选源
+      })
+      .finally(() => {
+        // 一次性写入全局缓存：同一部剧在别处（换源面板、再次搜索）也能复用。
+        // 中断时也会走到这里，已拿到的结果不会丢
+        if (Object.keys(collected).length > 0) useAppStore.getState().setQuality(collected);
+        // 本批未拿到终态的键一律解锁，下次可立刻重试
+        for (const k of batch) inflightRef.current.delete(k);
+        if (batchRef.current === batch) batchRef.current.clear();
+        finish(keys);
+      });
+  };
 
   const activate = () => onOpen(group.items[0], group);
 
@@ -163,10 +296,26 @@ export function AggregatedCard({
               >
                 <i className={cn('g-dot', lv)} />
                 {it.sourceName || it.sourceKey}
+                <QualityBadge entry={qualities[key]} loading={probing[key]} />
                 {h?.ok && h.ms != null && <em>{latencyText({ ok: h.ok, ms: h.ms })}</em>}
               </button>
             );
           })}
+          {/*
+           * 画质探测入口：默认不探（一次搜索几十部片，全量探测会把源站压垮），
+           * 用户想知道这部片各源画质时点一下，按需逐个亮起来。
+           */}
+          <button
+            className="g-rcard-qbtn"
+            title={Object.keys(probing).length > 0 ? '正在探测画质…' : '探测各来源画质（10 秒内出结果）'}
+            onClick={(e) => {
+              e.stopPropagation();
+              startQualityProbe();
+            }}
+          >
+            {Object.keys(probing).length > 0 ? '探测中…' : '测画质'}
+          </button>
+
           {count > 5 && (
             <button
               className="g-rcard-srcmore"

@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { api } from '@/lib/client-api';
 import { buildWatchUrl, cn } from '@/lib/utils';
+import { qualityKey } from '@/lib/quality';
+import { QualityBadge } from './quality-badge';
 import { isSourceDisabled, resolveSource, useAppStore } from '@/lib/store';
 import {
   collectSourceCandidates,
@@ -11,6 +14,7 @@ import {
   sortCandidates,
   type SourceCandidate,
 } from '@/lib/source-switch';
+import type { QualityEntry } from '@/lib/types';
 import { useToast } from './toast';
 
 /**
@@ -138,6 +142,66 @@ export function SourceSwitchCard({
   // 离开页面时中止在途搜索/测速
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  /*
+   * 候选源的画质：延迟决定「卡不卡」，画质决定「清不清楚」，只给前者等于让用户
+   * 在两个 720P 源里挑得更快的那个。搜索结果一稳定就整批探一次，结果进全局缓存，
+   * 搜索卡片/详情弹窗共用同一份，重复进页面不再重复请求。
+   */
+  const [probingQuality, setProbingQuality] = useState(false);
+  const qualityAbortRef = useRef<AbortController | null>(null);
+  const qualitySignature = useMemo(
+    () =>
+      candidates
+        .map((c) => qualityKey(c.source.key, c.result.vodId))
+        .sort()
+        .join(','),
+    [candidates]
+  );
+
+  useEffect(() => {
+    if (!qualitySignature || testing) return;
+    const known = useAppStore.getState().qualityMap;
+    const targets = candidates
+      .filter((c) => {
+        const entry = known[qualityKey(c.source.key, c.result.vodId)];
+        // 探到过就不重探；探失败过的也跳过（失败 TTL 由服务端与本地面板各自兜着）
+        return !entry;
+      })
+      .map((c) => ({ source: c.source, id: c.result.vodId }));
+    if (targets.length === 0) return;
+
+    const controller = new AbortController();
+    qualityAbortRef.current?.abort();
+    qualityAbortRef.current = controller;
+    setProbingQuality(true);
+    const collected: Record<string, QualityEntry> = {};
+    api
+      .qualityProbeStream(
+        targets,
+        (result) => {
+          collected[qualityKey(result.sourceKey, result.vodId)] = {
+            height: result.height,
+            from: 'probe',
+            error: result.error,
+            timestamp: Date.now(),
+          };
+        },
+        controller.signal
+      )
+      .catch(() => {
+        /* 探测失败不阻塞换源，徽章不显示即可 */
+      })
+      .finally(() => {
+        if (Object.keys(collected).length > 0) useAppStore.getState().setQuality(collected);
+        setProbingQuality(false);
+      });
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qualitySignature, testing]);
+
+  // 卸载时掐掉画质探测
+  useEffect(() => () => qualityAbortRef.current?.abort(), []);
+
   const sorted = useMemo(
     () => sortCandidates(candidates, { sourceKey: currentSourceKey, vodId: currentVodId }),
     [candidates, currentSourceKey, currentVodId]
@@ -194,6 +258,10 @@ export function SourceSwitchCard({
               >
                 <i className={cn('g-dot', level)} />
                 <span className="g-srcrow-name">{c.source.name}</span>
+                <QualityBadge
+                  entry={store.qualityMap?.[qualityKey(c.source.key, c.result.vodId)]}
+                  loading={probingQuality && !store.qualityMap?.[qualityKey(c.source.key, c.result.vodId)]}
+                />
                 <em>{isCurrent ? '当前' : latencyText(c)}</em>
               </button>
             );

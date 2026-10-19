@@ -391,6 +391,7 @@ function SearchContent() {
                         setDetailItem(item);
                       }}
                       onPlaySource={playSource}
+                      sources={selectedSources}
                     />
                   ))}
                 </div>

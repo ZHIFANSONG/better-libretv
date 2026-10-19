@@ -967,6 +967,91 @@
 .g-stage .art-video-player .art-bottom {
   padding-bottom: 6px !important;
 }
+
+/*
+ * ===== 控制栏画质菜单（m05381 画质选择） =====
+ * 挂在播放器右上角，不占控制条位置（控制条在移动端本来就挤），
+ * 也不进 Artplayer 的设置二级面板（切画质要少点一下）。
+ * 尺寸用 em 跟随播放器字号：网页全屏时 Artplayer 会放大字号，菜单跟着放大。
+ */
+.g-qmenu {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 80;
+  font-size: 12px;
+  pointer-events: auto;
+}
+.g-qmenu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.18s ease, background 0.18s ease;
+}
+/* 平时半透明，悬停/展开才完全显现：画质胶囊常驻但不应比画面更显眼 */
+.g-stage:hover .g-qmenu-btn,
+.g-qmenu.open .g-qmenu-btn,
+.g-qmenu-btn:focus-visible {
+  opacity: 1;
+}
+.g-qmenu-btn:hover {
+  background: rgba(0, 0, 0, 0.75);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+.g-qmenu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 108px;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(18, 20, 26, 0.94);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.g-qmenu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.g-qmenu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.g-qmenu-item.on {
+  background: rgba(103, 153, 254, 0.24);
+  color: #fff;
+}
+.g-qmenu-item em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
 /* 剧集面板里的网格（提案 .eps 是 6 列） */
 .g-eps {
   display: grid;
@@ -1789,6 +1874,65 @@
   background: rgba(15, 23, 42, 0.05);
 }
 
+/* 「测画质」入口：比来源胶囊矮一档、虚线边，明显不是「一个源」 */
+.g-rcard-qbtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  border: 1px dashed var(--bd);
+  background: transparent;
+  color: var(--t4);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s;
+}
+.g-rcard-qbtn:hover {
+  color: var(--t2);
+  border-color: var(--brand);
+}
+
+/* ===== 画质徽章 ===== */
+/*
+ * 画质是「选哪个源」的关键信息之一，但比源名次要，因此做成小号等宽徽章，
+ * 挂在源名后面而不单独占一行 —— 胶囊宽度本来就紧张（卡内 5 颗一行）。
+ * 三档配色区分「高清 / 标清 / 没结论」：1080P 以上用品牌色突出。
+ */
+.g-qb {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.g-qb-hd {
+  background: rgba(103, 153, 254, 0.18);
+  color: var(--brand-2, #9dbdfb);
+}
+.g-qb-sd {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--t3);
+}
+.g-qb-unknown {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--t4);
+}
+.g-qb-idle {
+  background: transparent;
+  color: var(--t4);
+  animation: g-dot-pulse 1.1s ease-in-out infinite;
+}
+:root:not(.dark) .g-qb-sd,
+:root:not(.dark) .g-qb-unknown {
+  background: rgba(15, 23, 42, 0.06);
+}
+
 /* 搜索结果页内播放器已移除（v14）：点来源胶囊直接进 /watch，播放器只在播放页出现。 */
 /* ===== 详情弹窗：来源切换条 ===== */
 /*
@@ -1849,6 +1993,12 @@
 }
 .g-srcchip.off {
   opacity: 0.55;
+}
+/* 弹窗里的画质徽章比卡片里大一点点：这里字号本来就是 12px，9.5px 会显得太小 */
+.g-srcchip .g-qb,
+.g-srcrow .g-qb {
+  font-size: 10px;
+  padding: 0 5px;
 }
 
 /* ===== 首页首屏：品牌区 + 分段控件 + 推荐标签条（m06954-1） ===== */
