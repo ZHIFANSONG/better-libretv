@@ -7,6 +7,8 @@
  * \`glass-jelly="true"\`，glassium 判的是「不是 'false' 就算开」，所以两者都能用。
  */
 declare module 'react' {
+  // 形参 T 必须与 React 原声明保持一致，此处不使用。
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface HTMLAttributes<T> {
     /** 写在这个元素上就是一块玻璃；值是预设名（default / clear / tinted / frosted）。 */
     glass?: string;

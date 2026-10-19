@@ -304,7 +304,7 @@ CI 校验 tag 与 `package.json` 版本一致后，自动构建并推送 `ghcr.i
 
 **1. 样式与主题层独立**
 
-- 新皮肤集中在一个约 2200 行的 `src/app/proposal.css` 中，`globals.css` 只保留设计 token 与基础层；版式切换靠类名钩子（`.g-shell` / `.g-stage` / `.g-panel` / `.g-seg` …），组件结构基本不动 —— 上游后续的功能合并不容易和新样式打架。
+- 新皮肤集中在一个约 2000 行的 `src/app/proposal.css` 中，`globals.css` 只保留设计 token 与基础层；版式切换靠类名钩子（`.g-shell` / `.g-stage` / `.g-panel` / `.g-seg` …），组件结构基本不动 —— 上游后续的功能合并不容易和新样式打架。
 - 玻璃质感使用 glassium 的 **CSS 后端**（`backdrop-filter: blur() saturate()` + `--glassium-refract` 位移贴图），不启用 WebGL 后端：后者在容器化环境里会把海报整块盖空，且每帧一张全屏画布在移动端耗电明显。
 - 页面背景（网格 + 两团漂移光斑）是两层 `fixed` 的 `.g-mesh` / `.g-bg`，压在内容层之下 —— 模糊需要有东西可模糊，玻璃层不能悬在纯色底上。
 - 导航选中态气泡靠脚本量取激活项盒子后平移（`src/lib/glass-nav.ts`）：glassium 的 `glass-glide` 只在 WebGPU / WebGL2 后端生效，CSS 后端下是死代码。

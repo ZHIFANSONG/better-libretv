@@ -185,9 +185,6 @@
 :root:not(.dark) .g-glass {
   box-shadow: 0 40px 90px -60px rgba(20, 24, 40, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
-.g-pill {
-  border-radius: var(--r-pill);
-}
 .g-panel {
   background: var(--glass);
   border-radius: var(--r-card);
@@ -388,12 +385,6 @@
 .g-poster:hover {
   transform: translateY(-3px);
   border-color: var(--bd-hover);
-}
-.g-poster-img {
-  position: absolute;
-  inset: 0;
-  background-size: cover;
-  background-position: center;
 }
 .g-poster-meta {
   position: absolute;
@@ -835,30 +826,6 @@
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(0, 0, 0, 0.14);
 }
-.g-th {
-  position: relative;
-  width: 88px;
-  aspect-ratio: 2 / 3;
-  border-radius: var(--r-media);
-  overflow: hidden;
-  flex: none;
-  background: #141821;
-}
-.g-th-q {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  font-size: 9.5px;
-  padding: 2px 6px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #cfe0ff;
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .g-bd {
   flex: 1;
   min-width: 0;
@@ -969,73 +936,6 @@
   display: grid;
   place-items: center;
 }
-.g-play {
-  width: 78px;
-  height: 78px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-}
-.g-ctl {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 16px;
-  border-radius: var(--r-pill);
-  transform: translateY(140%);
-  opacity: 0;
-  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s;
-}
-.g-stage:hover .g-ctl,
-.g-ctl.show {
-  transform: translateY(0);
-  opacity: 1;
-}
-.g-ctl .t {
-  font-size: 11.5px;
-  font-family: var(--mono);
-  color: var(--t2);
-  min-width: 82px;
-  text-align: center;
-  white-space: nowrap;
-}
-.g-pbar {
-  position: relative;
-  flex: 1;
-  height: 4px;
-  border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, 0.16);
-  cursor: pointer;
-  min-width: 60px;
-}
-.g-pbar i {
-  position: absolute;
-  inset: 0 auto 0 0;
-  background: linear-gradient(90deg, #4d6bfe, #6799fe);
-  border-radius: inherit;
-}
-.g-pbar s {
-  position: absolute;
-  inset: 0 auto 0 0;
-  height: 100%;
-  background: rgba(255, 255, 255, 0.22);
-  border-radius: inherit;
-}
-.g-pbar b {
-  position: absolute;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 0 4px rgba(103, 153, 254, 0.25);
-}
-
 /* ---- 页面局部：Hero 与筛选条（提案稿 A/B 页各自的内联样式，统一收在这里） ---- */
 .g-hero {
   margin: 26px 0 8px;
@@ -1055,14 +955,7 @@
   margin: 0;
 }
 /* ===== 播放页 / 直播页：提案稿 B/C 版式补丁（m04719） ===== */
-/* 顶栏入口标签：播放页是 /watch，导航项「首页」不该点亮，改用播放态说明 */
-.g-note-inline {
-  font-size: 12px;
-  color: var(--t3);
-  font-family: var(--mono);
-}
 /* 播放页：16:9 舞台包住播放器，圆角与提案一致 */
-.g-stage > .g-stage-inner,
 .g-stage > div {
   width: 100%;
   height: 100%;
@@ -1124,58 +1017,6 @@
 :root:not(.dark) .g-ep.on {
   background: #17181c;
   color: #fff;
-}
-/* 来源 / 线路列表（提案 .tablist / .tl） */
-.g-tablist {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 250px;
-  overflow: auto;
-}
-.g-tl {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  padding: 9px 12px;
-  border-radius: var(--r-media);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  color: var(--t2);
-  cursor: pointer;
-  text-align: left;
-  transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease);
-}
-:root:not(.dark) .g-tl {
-  background: rgba(0, 0, 0, 0.03);
-  border-color: rgba(0, 0, 0, 0.1);
-}
-.g-tl:hover {
-  border-color: var(--bd-hover);
-  color: var(--t1);
-}
-.g-tl.on {
-  background: rgba(77, 107, 254, 0.26);
-  border-color: rgba(120, 150, 255, 0.5);
-  color: #fff;
-}
-:root:not(.dark) .g-tl.on {
-  color: var(--brand-deep);
-  background: rgba(77, 107, 254, 0.14);
-}
-.g-tl span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.g-tl em {
-  font-style: normal;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--t4);
-  flex: none;
 }
 /* 播放页信息卡（提案 .info） */
 .g-info {
@@ -1366,24 +1207,6 @@
     right: 0;
     width: min(268px, calc(100vw - 28px));
   }
-}
-/* 快捷键盘提示（提案 .shortcut） */
-.g-shortcut {
-  font-size: 11px;
-  color: var(--t4);
-  font-family: var(--mono);
-  line-height: 1.9;
-}
-.g-shortcut kbd {
-  background: rgba(255, 255, 255, 0.09);
-  border: 1px solid var(--bd);
-  border-radius: 5px;
-  padding: 1px 5px;
-  font-family: var(--mono);
-  color: var(--t2);
-}
-:root:not(.dark) .g-shortcut kbd {
-  background: rgba(0, 0, 0, 0.05);
 }
 /* 直播页：频道信息条（复用 .g-info 的视觉，但更紧凑的单行） */
 .g-chan {
