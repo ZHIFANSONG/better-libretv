@@ -143,7 +143,7 @@ export function keyBelongsToSubscription(key: string, prefix: string): boolean {
 /**
  * 点播源自动停用阈值：连续失败/超时达到该次数即暂停该源参与搜索。
  *
- * 为什么是 3 而不是 2：单源搜索的死线是 10s（见 app/api/search/route.ts），
+ * 为什么是 3 而不是 2：单源搜索的死线默认 15s（见 app/api/search/route.ts 的 SEARCH_SOURCE_TIMEOUT_MS），
  * 而实测正常源本身就要 6~8s，网络差一点就会「超时」。旧值 2 意味着网络抖两下、
  * 一次搜索里两个源同时慢一点，就会给它们挂上 30 分钟停用——用户看到的是
  * 「明明能用却提示『N 个源已暂停参与搜索』」。留一次余量给偶发波动，真正挂掉的源

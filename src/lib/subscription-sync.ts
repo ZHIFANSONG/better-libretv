@@ -117,7 +117,7 @@ export async function applyEnvPresets(status: AuthStatusResponse): Promise<void>
     await syncEnvSubscriptions(status.defaultSubscriptions);
   }
   // 部署者通过 DEFAULT_RECOMMEND_SOURCE 指定的推荐数据源默认值：
-  // 仅对未主动选择过的用户生效（仍为出厂默认 hot-list 且无「已选择」标记），
+  // 仅对未主动选择过的用户生效（仍为出厂默认 douban / 旧版 hot-list 且无「已选择」标记），
   // 已有偏好的用户——包括清缓存前做过选择的——不被覆盖，用户的选择始终优先。
   // 直写 setState 而非 updateSettings：自动预置不算用户主动选择，不打「已选择」标记；
   // 应用后当前值 ≠ hot-list，AuthProvider 的幂等重入天然跳过。

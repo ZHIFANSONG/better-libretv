@@ -26,6 +26,8 @@ services:
       # - DEFAULT_SUBSCRIPTIONS=["https://example.com/sources.json"]
       # 可选：首页推荐数据源默认值（douban / bangumi / hot-list），仅对未主动选择过的用户生效
       # - DEFAULT_RECOMMEND_SOURCE=douban
+      # 可选：封面图加载方式默认值（direct / proxy），仅对未主动改过的用户生效
+      # - DEFAULT_IMAGE_MODE=direct
       # 可选：自建内网 IPTV 放行（对拉列表、测活、拉流三个阶段同时生效，默认关闭以维持 SSRF 防护）
       # - LIVE_ALLOW_PRIVATE=1
       # 可选：代理上游请求超时（毫秒）与重试次数
@@ -33,8 +35,8 @@ services:
       # - MAX_RETRIES=1
       # 可选：每个搜索源最多抓取的页数（1-50，默认 5），调大会显著增加上游请求量
       # - SEARCH_MAX_PAGES=5
-      # 可选：单个搜索源的总死线（毫秒，3s-60s，默认 10000），到点中断该源并标记超时
-      # - SEARCH_SOURCE_TIMEOUT_MS=10000
+      # 可选：单个搜索源的总死线（毫秒，3s-60s，默认 15000），到点中断该源并标记超时
+      # - SEARCH_SOURCE_TIMEOUT_MS=15000
       # 可选：代理请求 UA（豆瓣防盗链等场景）
       # - USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36
       # 可选：影视榜单推荐源（60s API）实例地址，官方公共实例有限流

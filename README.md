@@ -1,77 +1,81 @@
 # LibreTV
 
-LibreTV Next.js 迁移版：免费在线视频聚合搜索与观看平台。基于 Next.js 15（App Router）+ TypeScript + Tailwind CSS，播放内核为 ArtPlayer + hls.js，支持亮暗双主题。
+> 免费在线视频聚合搜索与观看平台。基于 **Next.js 15（App Router）+ TypeScript + Tailwind CSS**，播放内核为 **ArtPlayer + hls.js**，自带亮暗双主题、PWA 安装与 IPTV 直播。
 
-> 🎨 **本仓库是二改版（better-libretv），基线 v17**。上游功能与后端逻辑照旧，只重做了**表现层与客户端交互**，可直接替换上游部署。相对 [上游 LibreTV](https://github.com/LibreSpark/LibreTV) 的改动如下（按技术手段归类）：
->
-> **1. 视觉体系：换一套 CSS，不动组件逻辑**
-> - 新增 `src/app/proposal.css`（约 2000 行）承载全部新皮肤，`globals.css` 仅留 token 与基础层；组件靠加类名（`.g-shell` / `.g-page` / `.g-stage` / `.g-panel` / `.g-seg` …）切换版式，业务代码结构基本没动。
-> - 玻璃质感走 [glassium](https://www.npmjs.com/package/glassium) 的 **CSS 后端**（`backdrop-filter: blur() saturate()` + `--glassium-refract` 位移贴图），不用 WebGL 后端：后者在容器里会把海报整块盖空，且每帧一张全屏画布在手机上太费电。
-> - 页面背景（46px 网格 + 两团漂移光斑）是 `.g-mesh` / `.g-bg` 两层 `fixed` DOM，z-index 0/1，内容层 z-index 2 —— 玻璃要模糊到东西，必须自己下面有可模糊的内容。
->
-> **2. 版式重做：首页 / 搜索 / 播放 / 直播 / 我的**
-> - 首页：品牌大字 + 会滑动的分类分段控件（`.g-seg-ind` 绝对定位胶囊，量激活项盒子后平移）+ 豆瓣海报网格 + 「继续观看」。
-> - 搜索：结果改自适应网格（≥1440 四列 / ≥1024 三列 / ≥640 两列 / 单列）；搜索框改纯高斯模糊表面，历史下拉是同一块表面的下半截（零接缝）。
-> - 播放：爱奇艺式「舞台 + 右栏」排布，删掉次级信息条与纯展示的「采集源 / 快捷键」卡；舞台高度改 `max-height: calc(100dvh - 190px)`，不再按 `(100vh - 430px) * 16/9` 反推宽度，各种比例都不会缩成小方块。
-> - 直播 / 我的：同样落到 `.g-shell` 版式；「我的」把采集源健康度、观看历史、离线下载平铺成一页（原来是抽屉散在各处）。
->
-> **3. 播放器**
-> - Apple 触屏（iPhone / iPad / iPadOS 桌面 UA）走 `video.webkitEnterFullscreen()` 交给系统播放器；实现方式是 `Object.defineProperty` 覆盖 Artplayer 实例的 `fullscreen` 存取器，全屏按钮、设置项、快捷键 `f` 自动跟着改道。
-> - 因此**去掉了 `crossOrigin: 'anonymous'`**：带 crossOrigin 的视频在 iOS 上被判为跨域媒体，`webkitEnterFullscreen()` 会静默失效（点全屏没反应），而采集站也不给 CORS 头。
-> - 关掉 `airplay`（桌面 Chromium 上点了只弹「AirPlay Not Available」），错误遮罩加「换个源」。
->
-> **4. 换源与选源：搜索结果直接选 API、并显示延迟**
-> - `src/lib/source-switch.ts`：`collectSourceCandidates` 逐源流式搜索同名资源 → 立刻匹配 → 回调占位 → 每个源单独 `detailSpeed` 测速原地更新；`sortCandidates` 当前源置顶、可用优先、延迟升序。
-> - 播放页右栏 `SourceSwitchCard`：每行显示「源名 + 延迟圆点（<600ms 绿 / <1500ms 黄 / 超时红）+ 毫秒数」，点一行即换源并保留当前集数；「测速全部」按需触发，失败时自动重测。
-> - 搜索页：结果卡底部直接给出来源胶囊（带延迟圆点），点一下**就地播放**（`dynamic(ssr:false)` 挂 `PlayerShell`，不跳页、不丢筛选条件）；详情弹窗顶部也能选源，并显示「共 N 个来源」。
-> - 失败/停用源原本是三条整宽横幅，压成一行可展开的状态条。
->
-> **5. 源健康度与搜索策略**
-> - 单源搜索死线 10s → **15s**（健康源取首页 + 分页本就要 6~8s），单页 `timeoutMs` 与整源死线对齐；客户端是 NDJSON 流式逐源回吐，慢源不拖整体。
-> - 自动停用阈值 2 → **3** 次连续失败，阶梯 30 分钟 → 24 小时 → 长期不变。
-> - `resolveSource` 增加按 URL 反查兜底（key 对不上时不至于误报「点播源不存在」）；预置源与订阅源按地址去重，同一采集站不再出现两套。
->
-> **6. 默认值与工程**
-> - 首页推荐默认 `hot-list` → **`douban`**（榜单接口常限流，首屏常空），`store` 版本升到 v3 并为「没主动选过」的用户做迁移。
-> - 新增 `loading.tsx` / `not-found.tsx` / `top-progress.tsx`（App Router 无路由事件，靠捕获阶段拦 `<a>` 点击 + `popstate` 自己拼进度）/ 封面逐张淡入（`.g-img` → `.g-img-in`）。
-> - 清理上游留的死代码（`transmuxTSToMP4` / `deleteEpisodeCache` / `hasCachedSegment` / `fetchUpstreamJson` / `clearLiveRecent` 等），修 4 个红灯单测。
-> - 镜像与 CI 换成 `ghcr.io/zhifansong/better-libretv` / `docker.io/zhifansong/better-libretv`。
+本仓库是 **better-libretv**（二改版），上游功能与后端逻辑照旧，重做的是**表现层与客户端交互**：一套新的视觉系统、首页 / 搜索 / 播放 / 直播 / 我的五个页面全部重排版式、换源选源与「跳过片头片尾」等交互补全。技术上相对上游改了什么，见文末[相对上游的主要改动](#相对上游的主要改动)。
 
-> 🏠 **官网**：[LibreTV 官网](https://libretv.is-an.org/)
->
-> 🌐 **演示站**：[tv.bagiinlink.eu.org](https://tv.bagiinlink.eu.org)（访问密码：`libretv`）
->
-> 📖 **完整文档**：[文档首页](https://libretv.is-an.org/wiki/) · [架构](https://libretv.is-an.org/wiki/Architecture.html) · [部署](https://libretv.is-an.org/wiki/Deployment.html) · [配置](https://libretv.is-an.org/wiki/Configuration.html) · [数据源](https://libretv.is-an.org/wiki/Data-Sources.html) · [直播 / IPTV](https://libretv.is-an.org/wiki/Live-IPTV.html) · [首页推荐](https://libretv.is-an.org/wiki/Recommendations.html) · [播放器](https://libretv.is-an.org/wiki/Player.html) · [代理与安全](https://libretv.is-an.org/wiki/Proxy-Security.html) · [FAQ](https://libretv.is-an.org/wiki/FAQ.html)
->
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/home.webp" alt="首页" /></td>
+    <td width="50%"><img src="docs/screenshots/search.webp" alt="搜索" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/watch.webp" alt="播放" /></td>
+    <td><img src="docs/screenshots/live.webp" alt="直播" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/me.webp" alt="我的" /></td>
+    <td></td>
+  </tr>
+</table>
 
-<p align="center">
- <a href="https://trendshift.io/repositories/26551?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-26551" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/26551" alt="LibreSpark%2FLibreTV | Trendshift" width="250" height="55"/></a> <a href="https://trendshift.io/repositories/26551?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-26551" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/26551/weekly?language=JavaScript" alt="LibreSpark%2FLibreTV | Trendshift" width="250" height="55"/></a>
-</p>
+> 🏠 **上游官网**：[libretv.is-an.org](https://libretv.is-an.org/)
+>
+> 📖 **完整文档**：[文档首页](https://libretv.is-an.org/wiki/) · [架构](https://libretv.is-an.org/wiki/Architecture.html) · [部署](https://libretv.is-an.org/wiki/Deployment.html) · [配置](https://libretv.is-an.org/wiki/Configuration.html) · [数据源](https://libretv.is-an.org/wiki/Data-Sources.html) · [直播 / IPTV](https://libretv.is-an.org/wiki/Live-IPTV.html) · [播放器](https://libretv.is-an.org/wiki/Player.html) · [代理与安全](https://libretv.is-an.org/wiki/Proxy-Security.html) · [FAQ](https://libretv.is-an.org/wiki/FAQ.html)
 
 ## 核心特性
 
-- **聚合搜索**：多采集站服务端并行搜索
-- **跨源同名聚合**：同名影片合并为一张卡片，展开即可比较和选择各来源
-- **HLS 播放**：ArtPlayer + hls.js，广告分片过滤、自动连播、倍速、快捷键、移动端长按 3 倍速
-- **直播 / IPTV**：M3U 订阅解析，`/live` 页面按分组浏览、搜索频道并站内播放（HLS + HTTP-FLV），支持 XMLTV 节目单（EPG）与频道收藏；直播流经专用长连接代理（`/api/live/stream`）转发
-- **进度同步**：播放进度与观看历史存于本机 IndexedDB，精确到秒的续播
-- **换源测速**：跨源搜索同名资源并测速排序，一键切换保留集数位置
-- **源测试与订阅**：一键探活点播源与直播源（支持批量测活）；搜索时自动记录各源健康度，连续失败的源按阶梯时长自动停用（30 分钟 → 24 小时 → 长期），可一键恢复；订阅远程源列表（一份 LibreTV-SourceList JSON 可同时下发点播源与直播源，也可直接填 TVBOX 配置地址，自动导入其中可直接使用的接口），可导出分享
-- **首页推荐**：豆瓣（电影/剧集分类浏览）、Bangumi 新番放送表或影视榜单（豆瓣周榜 + 百度热播，经 60s API），设置中切换；均服务端直连 + 缓存，Bangumi/榜单免 key 免配置（`60S_API_BASE` 可指向自部署 60s 实例）
-- **PWA**：可安装到桌面 / 主屏幕，亮暗双主题无首屏闪烁
+**搜索与选源**
+
+- **聚合搜索**：多个 Apple CMS 采集站服务端并行搜索，客户端经 NDJSON 流式逐源回吐，慢源不拖整体。
+- **跨源同名聚合**：同名影片合并为一张卡片，卡片底部直接列出各来源（带延迟圆点），点哪个就用哪个源的资源开播，不再碰运气。
+- **详情弹窗选源**：弹窗顶部列出这部片子的全部来源，切换来源后自动重取详情与剧集列表。
+- **源健康度**：搜索时自动记录每个源的成功/超时，连续失败 3 次按阶梯自动停用（30 分钟 → 24 小时 → 长期），失败源压成一行可展开的状态条，不再用三条横幅把结果顶下去。
+
+**播放**
+
+- **播放页换源卡**：右栏每行一个源，显示延迟（<600ms 绿 / <1500ms 黄 / 超时红），点一行即换源并保留当前集数；「测速全部」按需触发，播放失败时自动重测。
+- **跳过片头 / 片尾**：默认跳过 90s 片头、提前 30s 跳片尾，可在播放页按「本剧」覆盖，也可在设置里改全局默认；跳完片头会给出 12 秒「撤销」入口。
+- **全屏兜底**：Apple 触屏（iPhone / iPad / iPadOS 桌面 UA）走系统播放器全屏，其余走元素全屏，桌面、Pad、手机各自都能进能出。
+- **快捷键**：空格播放/暂停、←/→ 快退快进 5s、↑/↓ 音量、`F` 全屏、`Alt + ←/→` 切集；移动端长按 3 倍速。
+- **离线下载**：播放页可「下载本集」（TS / MP4），任务在「我的 → 离线下载」里看进度。
+
+**内容与直播**
+
+- **首页推荐**：豆瓣电影/剧集分类浏览、Bangumi 新番放送表、影视榜单（豆瓣周榜 + 百度热播，经 60s API），设置中随时切换，均服务端直连 + 缓存，免 key。
+- **直播 / IPTV**：M3U 订阅解析，按分组浏览、搜索频道、批量测活、站内播放（HLS + HTTP-FLV），支持 XMLTV 节目单（EPG）与频道收藏，可导出标准 M3U 给 PotPlayer / VLC。
+- **进度同步**：播放进度与观看历史存于本机 IndexedDB，精确到秒续播；首页有「继续观看」入口。
+
+**工程**
+
+- **数据源订阅 / 分享**：一份 LibreTV-SourceList JSON 可同时下发点播源与直播源，也接受 TVBOX 配置地址（自动导入其中可直接使用的接口），可导出、可一键发布为公开链接。
+- **PWA**：可安装到桌面 / 主屏幕，亮暗双主题无首屏闪烁，路由切换有顶部进度条。
+- **自托管**：单容器无状态运行，除访问密码外不需要任何外部依赖（无数据库、无 Redis）。
+
+## 快速开始
+
+```bash
+git clone https://github.com/ZHIFANSONG/better-libretv.git
+cd better-libretv
+
+# 必填：设置访问密码
+echo "PASSWORD=your-password" > .env
+
+# 拉取发布镜像并启动（监听 8080）
+docker compose pull && docker compose up -d
+```
+
+打开 `http://localhost:8080`，输入密码即可使用。生产环境请套 HTTPS，原因见下方[部署](#部署)。
 
 ## 部署
 
 ### Docker（推荐）
 
 ```bash
-# 在 .env 中设置 PASSWORD
-echo "PASSWORD=your-password" > .env
-
 # 方式一：拉取发布镜像（零构建）
 docker compose pull && docker compose up -d
 
-# 方式二：源码构建
+# 方式二：本地源码构建
 docker compose up -d --build
 ```
 
@@ -91,24 +95,18 @@ services:
       # - DEFAULT_SOURCES=[{"name":"示例源","url":"https://example.com/api.php/provide/vod"}]
       # - DEFAULT_LIVE_SOURCES=[{"name":"示例直播源","url":"https://example.com/list.m3u"}]
       # - DEFAULT_SUBSCRIPTIONS=["https://example.com/sources.json"]  # 预置订阅，自动导入点播源+直播源
-      # - DEFAULT_RECOMMEND_SOURCE=douban  # 首页推荐数据源默认值（douban/bangumi/hot-list），仅对未主动选择过的用户生效
-      # - LIVE_ALLOW_PRIVATE=1              # 自建内网 IPTV 源时开启
+      # - DEFAULT_RECOMMEND_SOURCE=douban    # 首页推荐数据源默认值（douban/bangumi/hot-list）
+      # - DEFAULT_IMAGE_MODE=direct          # 封面图加载方式默认值（direct/proxy）
+      # - LIVE_ALLOW_PRIVATE=1               # 自建内网 IPTV 源时开启
 ```
 
 > 其余可选变量见下方[环境变量](#环境变量)表；仓库内的 `docker-compose.yml` 含完整注释版本（含 `build: .` 源码构建分支）。
 
-```bash
-docker compose pull && docker compose up -d
-```
+> ⚠️ **生产部署必须通过 HTTPS 访问**（localhost 除外）：生产模式下会话 cookie 带 `Secure` 标记，浏览器只在 HTTPS（或 localhost）下保存它。因此用 `http://服务器IP:端口` 访问时，会出现「密码正确却无法登录」的现象——登录请求实际成功，但 cookie 被浏览器丢弃。请通过反向代理（Nginx / Caddy / Traefik）或 Cloudflare 等为站点套上 TLS 后再对外提供服务；本地开发用 `localhost` 不受影响。
 
-> ⚠️ **生产部署必须通过 HTTPS 访问**（localhost 除外）：生产模式下会话 cookie 带 `Secure` 标记，浏览器只在 HTTPS（或 localhost）下保存它。因此用 `http://服务器IP:端口` 访问时，会出现"密码正确却无法登录"的现象——登录请求实际成功，但 cookie 被浏览器丢弃。请通过反向代理（Nginx / Caddy / Traefik）或 Cloudflare 等为站点套上 TLS 后再对外提供服务；本地开发用 `localhost` 不受影响。
+镜像发布在 GHCR 与 Docker Hub：`ghcr.io/zhifansong/better-libretv` 与 `docker.io/zhifansong/better-libretv`（`latest` / `主.次` / 完整版本号三个 tag，`linux/amd64` 与 `linux/arm64` 双架构，两个 registry 的镜像 digest 一致）。需要固定版本时在 `.env` 中设置 `LIBRETV_IMAGE=ghcr.io/zhifansong/better-libretv:2.16.12`。
 
-镜像发布在 GHCR 与 Docker Hub：`ghcr.io/zhifansong/better-libretv` 与 `docker.io/zhifansong/better-libretv`
-（`latest` / `主.次` / 完整版本号三个 tag，`linux/amd64` 与 `linux/arm64` 双架构，
-两个 registry 的镜像 digest 一致）。需要固定版本时在 `.env` 中设置
-`LIBRETV_IMAGE=ghcr.io/zhifansong/better-libretv:2.0.1`。
-
-> 版本号以 `package.json` 为单一来源，部署后可用 `/api/status` 返回的 `version` 字段核对。详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)。
+> 版本号以 `package.json` 为单一来源，构建时注入 `APP_VERSION`，部署后可用 `/api/status` 返回的 `version` 字段核对。详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)。
 
 ### 手动运行
 
@@ -123,28 +121,48 @@ PASSWORD=your-password npm start   # 监听 8080
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
 | `PASSWORD` | 是 | 访问密码；未设置时站点会提示管理员配置 |
-| `PROXY_SECRET` | 否 | 会话/代理签名密钥；不设置时从 PASSWORD 派生（多实例部署建议显式设置） |
-| `DEFAULT_SOURCES` | 否 | 预置采集站（JSON 数组），用户端自动出现且默认勾选，详见[配置文档](https://libretv.is-an.org/wiki/Configuration.html) |
-| `REQUEST_TIMEOUT` | 否 | 代理上游请求超时（毫秒），默认 8000 |
-| `MAX_RETRIES` | 否 | 代理请求重试次数，默认 1 |
-| `SEARCH_MAX_PAGES` | 否 | 每个搜索源最多抓取的页数（1-50，默认 5）。第一页会读取源站 `pagecount`，实际页数 = min(源站总页数，该值)；页间并行请求，单页失败只丢该页 |
-| `SEARCH_SOURCE_TIMEOUT_MS` | 否 | 单个搜索源的总死线（毫秒，3s-60s，默认 10000）：该源所有分页请求须在时限内完成，到点中断并将其标记为「超时」；健康度自动停用也以此为超时判定依据 |
+| `PROXY_SECRET` | 否 | 会话/代理签名密钥；不设置时从 `PASSWORD` 派生（多实例部署建议显式设置：`openssl rand -hex 32`） |
+| `COOKIE_SECURE` | 否 | 显式覆盖会话 cookie 的 `Secure` 标记（`true` / `false`）；默认按请求协议自动推导。反向代理未正确传递 `x-forwarded-proto` 导致 HTTPS 下登录失效时，设为 `true` 可解 |
+| `DEFAULT_SOURCES` | 否 | 预置点播源（JSON 数组），用户端自动出现且默认勾选，详见[配置文档](https://libretv.is-an.org/wiki/Configuration.html) |
+| `DEFAULT_LIVE_SOURCES` | 否 | 预置直播源（M3U 订阅，JSON 数组）：`[{"name":"源名","url":"https://.../list.m3u","epg":"https://.../epg.xml.gz"}]`，`epg` 为可选节目单地址 |
+| `DEFAULT_SUBSCRIPTIONS` | 否 | 预置数据源订阅（LibreTV-SourceList JSON 链接，也接受 TVBOX 配置地址），JSON 数组。首次访问自动导入，之后每 24h 静默刷新；用户删除后不再自动加回 |
+| `DEFAULT_RECOMMEND_SOURCE` | 否 | 首页推荐数据源默认值（`douban` / `bangumi` / `hot-list`，出厂 `douban`）；仅对未在设置中主动选择过的用户生效 |
+| `DEFAULT_IMAGE_MODE` | 否 | 封面图加载方式默认值：`direct`（原站直连优先，省服务器流量，出厂值）/ `proxy`（内置代理优先，最稳定）；取值非法时告警并忽略 |
+| `LIVE_ALLOW_PRIVATE` | 否 | 设为 `1` 时允许直播流代理访问内网/保留地址（自建 IPTV 场景），默认关闭以维持 SSRF 防护 |
+| `REQUEST_TIMEOUT` | 否 | 代理上游请求超时（毫秒），默认 `8000` |
+| `MAX_RETRIES` | 否 | 代理请求重试次数，默认 `1` |
+| `SEARCH_MAX_PAGES` | 否 | 每个搜索源最多抓取的页数（`1`-`50`，默认 `5`）。第一页会读取源站 `pagecount`，实际页数 = min(源站总页数, 该值)；页间并行请求，单页失败只丢该页 |
+| `SEARCH_SOURCE_TIMEOUT_MS` | 否 | 单个搜索源的总死线（毫秒，`3000`-`60000`，默认 `15000`）：该源所有分页请求须在时限内完成，到点中断并标记「超时」，源健康度自动停用也以此为判定依据 |
 | `USER_AGENT` | 否 | 代理请求使用的 UA（豆瓣封面防盗链等场景），默认 Chrome UA |
 | `FALLBACK_CORS_PROXY` | 否 | 豆瓣推荐数据直连被拒时降级使用的 CORS 代理地址 |
-| `COOKIE_SECURE` | 否 | 显式覆盖会话 cookie 的 `Secure` 标记（`true` / `false`）；默认按请求协议自动推导。反向代理未正确传递 `x-forwarded-proto` 导致 HTTPS 下登录失效时，设为 `true` 可解 |
-| `60S_API_BASE` | 否 | 影视榜单推荐源（60s API）实例地址，默认 `https://60s.crystelf.top`；有限流，高频使用可[自部署](https://github.com/vikiboss/60s) |
-| `DEFAULT_LIVE_SOURCES` | 否 | 预置直播源（M3U 订阅），JSON 数组：`[{"name":"源名","url":"https://.../list.m3u","epg":"https://.../epg.xml.gz"}]`，`epg` 为可选的 XMLTV 节目单地址 |
-| `DEFAULT_SUBSCRIPTIONS` | 否 | 预置数据源订阅（LibreTV-SourceList JSON 链接，也接受 TVBOX 配置地址），JSON 数组：`["https://.../sources.json", {"url":"https://.../list.json","name":"名称"}]`。首次访问自动导入点播源与直播源，之后每 24h 静默刷新；用户删除后不再自动加回 |
-| `DEFAULT_RECOMMEND_SOURCE` | 否 | 首页推荐数据源的默认值（`douban` / `bangumi` / `hot-list`，出厂默认 `douban` 豆瓣热门）；仅对未在设置中主动选择过的用户生效，用户的选择始终优先 |
-| `LIVE_ALLOW_PRIVATE` | 否 | 设为 `1` 时允许直播流代理访问内网/保留地址（自建 IPTV 场景），默认关闭以维持 SSRF 防护 |
+| `60S_API_BASE` | 否 | 影视榜单推荐源（60s API）实例地址，默认 `https://60s.crystelf.top`，请求失败自动回退官方公共实例 `https://60s.viki.moe`；公共实例有限流，高频使用可[自部署](https://github.com/vikiboss/60s) |
+
+> `APP_VERSION` 由构建期从 `package.json` 读取，不需要手动设置。
 
 ## 使用说明
 
 1. **添加点播源**：设置 → 源管理 → 点播源 → 添加 API，填入 Apple CMS 采集站地址（如 `https://example.com/api.php/provide/vod`），可选填详情页地址（部分源需要爬详情页提取播放地址）。
-2. **搜索**：勾选点播源后输入片名；搜索通过服务端聚合，个别源失败不影响整体结果。
-3. **播放**：详情弹窗选择剧集进入 `/watch`；支持快捷键（空格/←→/↑↓/F/Alt+←→）、移动端长按 3 倍速、自动连播、换源测速。观看/暂停时后续分片自动缓存到本地（设置可关），播放页可「下载本集」（TS/MP4）离线观看。
-4. **进度与历史**：自动保存在本设备 IndexedDB，仅定位信息入库，播放时自动同步最新剧集。
-5. **配置迁移**：设置 → 数据 → 配置导入导出（兼容旧版 LibreTV-Settings JSON 的历史记录迁移）。
+2. **搜索**：勾选点播源后输入片名；搜索经服务端聚合、客户端流式回吐，个别源失败不影响整体结果。
+3. **选源播放**：结果卡片底部是来源胶囊（源名 + 延迟），点一下直接进播放页；也可以点卡片看详情，在弹窗顶部比较各来源的剧集数量再决定。
+4. **换源**：播放页右栏「换源」卡按延迟排序，点一行即换（集数保留）；「查看更多来源」会打开完整面板，展示每个源的剧集数与测速结果。
+5. **跳过片头片尾**：播放页动作行最右侧的「跳过 片头 90s · 片尾 30s」按钮，改的是**本剧**；批次默认值在设置 → 偏好设置 → 播放与过滤。第 1 集不跳片头（首集常是预告或花絮）。
+6. **进度与历史**：自动保存在本设备 IndexedDB，仅定位信息入库，播放时自动同步最新剧集。
+7. **配置迁移**：设置 → 数据 → 配置导入导出（兼容旧版 LibreTV-Settings JSON 的历史记录迁移）。
+
+## 播放器
+
+| 操作 | 快捷键 |
+| --- | --- |
+| 播放 / 暂停 | `空格` |
+| 快退 / 快进 5s | `←` / `→` |
+| 音量 ±0.1 | `↑` / `↓` |
+| 全屏 | `F` / `f` |
+| 上一集 / 下一集 | `Alt + ←` / `Alt + →` |
+| 三倍速（移动端） | 长按画面 |
+
+- 输入框或按钮获得焦点时不劫持按键，搜索框里按空格不会触发暂停。
+- 全屏在 Apple 触屏上交给系统播放器（`video.webkitEnterFullscreen()`）：实现方式是覆盖 Artplayer 实例的 `fullscreen` 存取器，全屏按钮、设置菜单、快捷键 `f` 自动跟着改道。这也是**移除 `crossOrigin: 'anonymous'`** 的原因——带该属性的视频在 iOS 上会被判为跨域媒体，`webkitEnterFullscreen()` 静默失效（表现为「点全屏没反应」），而采集站本来也不给 CORS 头。
+- 播放失败时遮罩上直接给「换个源」和「重新加载」两个按钮，不用回侧栏找入口。
 
 ## 直播 / IPTV
 
@@ -197,7 +215,7 @@ PASSWORD=your-password npm start   # 监听 8080
 | `sources[].name` | 项 | string | 否 | 源显示名；缺省时使用 URL 主机名 |
 | `sources[].url` | 项 | string | **是** | Apple CMS 采集接口地址（公网 http/https），结尾 `/` 自动去除 |
 | `sources[].detail` | 项 | string | 否 | 详情页根地址，用于列表接口拿不到播放地址、需要爬详情页提取 m3u8 的源 |
-| `sources[].isAdult` | 项 | boolean | 否 | 成人内容标记，默认 `false`。标记为 `true` 的源名称旁显示 **(18+)** 徽章；设置中的「成人内容过滤」开启（默认开启）时该源不可勾选、不参与搜索，需先关闭过滤才能启用 |
+| `sources[].isAdult` | 项 | boolean | 否 | 成人内容标记，默认 `false`。标记为 `true` 的源名称旁显示 **(18+)** 徽章；设置中的「成人内容过滤」开启（默认开启）时该源不可勾选、不参与搜索 |
 | `liveSources` | 顶层 | array | 否 | **直播源**数组（M3U 播放列表），最多 50 个，超出部分截断 |
 | `liveSources[].name` | 项 | string | 否 | 源显示名；缺省时使用 URL 主机名 |
 | `liveSources[].url` | 项 | string | **是** | M3U 播放列表地址（http/https） |
@@ -225,7 +243,7 @@ PASSWORD=your-password npm start   # 监听 8080
 - **订阅**：设置 → 源管理 → 数据源订阅 → 填入订阅地址 → 「订阅」，导入的点播源自动勾选、直播源自动启用，均带「订阅」标识，条目上显示「点播 N · 直播 M」；
 - **同步**：订阅条目上的 **⟳** 手动强制同步，整体替换该订阅名下的点播源与直播源；
 - **管理边界**：订阅源以远端列表为准，单独编辑会在下次同步时被覆盖，单独移除会在重新同步时恢复；如需调整请改远端列表，或直接删除整个订阅。删除订阅时点播源全部移除；直播源为**多归属共享**——同一 M3U 可被多个订阅引用（名称/EPG 以首次导入为准），删除订阅或远端列表中移除该源后再同步，都只摘除本订阅的引用，仅当不再被任何订阅引用时才移除该源，手动添加的源不受同步影响，**收藏的频道始终保留**；
-- **导出分享**：设置 → 源管理 → 数据源订阅 → 「导出数据源」，把当前全部点播源与直播源（预置 + 手动 + 订阅，按 URL 去重）导出为上述 JSON；也可用「发布为链接」，把当前**已勾选启用**的源一键上传到公开粘贴板（paste.rs，失败自动降级 0x0.st），直接返回可填入订阅框的 URL，无需自备托管。注意：发布的内容**公开可读**，且每次发布生成新链接、不支持覆盖更新，需长期稳定请用导出 + 自行托管。
+- **导出分享**：设置 → 源管理 → 数据源订阅 → 「导出数据源」，把当前全部点播源与直播源（预置 + 手动 + 订阅，按 URL 去重）导出为上述 JSON；也可用「发布为链接」，把当前**已勾选启用**的源一键上传到公开粘贴板（paste.rs，失败自动降级 0x0.st），直接返回可填入订阅框的 URL。注意：发布的内容**公开可读**，且每次发布生成新链接、不支持覆盖更新，需长期稳定请用导出 + 自行托管。
 
 > 订阅由服务端拉取（经过 SSRF 校验），因此订阅地址无需配置 CORS。完整说明见 [数据源文档](https://libretv.is-an.org/wiki/Data-Sources.html)。
 
@@ -234,9 +252,12 @@ PASSWORD=your-password npm start   # 监听 8080
 ```bash
 npm install
 PASSWORD=dev-password npm run dev   # http://localhost:8080
-npm test                            # 核心库单元测试（cms-parser / m3u8 / ssrf）
-npm run typecheck
+npm test                            # vitest：26 个测试文件 / 312 个用例（cms-parser / m3u8 / ssrf / 订阅同步 …）
+npm run typecheck                   # tsc --noEmit
+npm run lint                        # eslint src
 ```
+
+目录速览：`src/app`（App Router 页面与 17 个 API 路由）、`src/components`（播放器、换源、设置、详情弹窗等）、`src/lib`（采集站解析、m3u8、SSRF、订阅、IndexedDB、zustand store）、`src/app/proposal.css`（本二改版的整套皮肤）、`src/app/globals.css`（token 与基础层）。
 
 测试范围、发布流程与文档结构见 [开发文档](https://libretv.is-an.org/wiki/Development.html)。
 
@@ -249,7 +270,54 @@ npm version patch       # 或 minor / major；会更新 package.json 并打 git 
 git push && git push --tags
 ```
 
-CI 校验通过后自动构建并推送 `ghcr.io/zhifansong/better-libretv:<版本>`（详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)）。
+CI 校验 tag 与 `package.json` 版本一致后，自动构建并推送 `ghcr.io/zhifansong/better-libretv:<版本>`（amd64 + arm64 分架构构建）。详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)。
+
+## 相对上游的主要改动
+
+上游功能与后端逻辑照旧，改动集中在表现层与客户端交互，按技术手段归类：
+
+**1. 视觉体系：换一套 CSS，不动组件逻辑**
+
+- 新增 `src/app/proposal.css`（约 2200 行）承载全部新皮肤，`globals.css` 只留 token 与基础层；组件靠加类名（`.g-shell` / `.g-page` / `.g-stage` / `.g-panel` / `.g-seg` …）切换版式，业务代码结构基本没动。
+- 玻璃质感走 [glassium](https://www.npmjs.com/package/glassium) 的 **CSS 后端**（`backdrop-filter: blur() saturate()` + `--glassium-refract` 位移贴图），不用 WebGL 后端：后者在容器里会把海报整块盖空，且每帧一张全屏画布在手机上太费电。
+- 页面背景（46px 网格 + 两团漂移光斑）是 `.g-mesh` / `.g-bg` 两层 `fixed` DOM，z-index 0/1，内容层 z-index 2 —— 玻璃要模糊到东西，必须自己下面有可模糊的内容。
+- 导航选中气泡是量了激活项盒子自己平移（`src/lib/glass-nav.ts`）：glassium 的 `glass-glide` 只在 WebGPU / WebGL2 后端生效，CSS 后端下是死代码。
+
+**2. 版式重做：首页 / 搜索 / 播放 / 直播 / 我的**
+
+- 首页：品牌大字 + 会滑动的分类分段控件 + 豆瓣海报网格 + 「继续观看」。
+- 搜索：结果改自适应网格（≥1440 四列 / ≥1024 三列 / ≥640 两列 / 单列）；搜索框改纯高斯模糊表面，历史下拉是同一块表面的下半截（零接缝）。
+- 播放：爱奇艺式「舞台 + 右栏」排布，删掉次级信息条与纯展示的「采集源 / 快捷键」两卡；舞台改 `width:100%; max-height: calc(100dvh - 190px)`，不再按 `(100vh - 430px) * 16/9` 反推宽度——那正是「某些窗口比例下播放器缩成小方块」的根因。
+- 信息卡按视口宽度切单/双列（断点 1141px，依据是动作行五颗按钮 541px + 20px 间距 + 240px 最小可读文字列）；简介按行高 clamp 4 行，超长给「展开简介」。
+- 直播 / 我的：同样落到 `.g-shell` 版式；「我的」把采集源健康度、观看历史、离线下载平铺成一页（原来是抽屉散在各处）。
+
+**3. 播放器**
+
+- Apple 触屏（iPhone / iPad / iPadOS 桌面 UA）走 `video.webkitEnterFullscreen()` 交给系统播放器；实现方式是 `Object.defineProperty` 覆盖 Artplayer 实例的 `fullscreen` 存取器，全屏按钮、设置项、快捷键 `f` 自动跟着改道。Artplayer 会在首次 `loadedmetadata` 时用不可配置的 `defineProperty` 再盖一次，所以那里必须补装同一套覆盖。
+- 因此**去掉了 `crossOrigin: 'anonymous'`**：带 crossOrigin 的视频在 iOS 上被判为跨域媒体，`webkitEnterFullscreen()` 会静默失效（点全屏没反应），而采集站也不给 CORS 头。
+- 关掉 `airplay`（桌面 Chromium 上点了只弹「AirPlay Not Available」），错误遮罩加「换个源」。
+- 新增跳过片头 / 片尾：`video:playing` 首次触发时跳到 `min(introSec, min(180, duration*0.3))`，且只在当前进度还小于目标时才跳（恢复进度 / 手动拖过片头不会被拽回去）；`timeupdate` 里检测到 `currentTime >= duration - outro` 即触发 `onEnded` 交给自动连播。首集不跳片头（常是预告或花絮）。
+
+**4. 换源与选源：搜索结果直接选 API、并显示延迟**
+
+- `src/lib/source-switch.ts`：`collectSourceCandidates` 逐源流式搜索同名资源 → 立刻匹配 → 回调占位 → 每个源单独 `detailSpeed` 测速原地更新；`sortCandidates` 当前源置顶、可用优先、延迟升序。
+- 播放页右栏 `SourceSwitchCard`：每行显示「源名 + 延迟圆点（<600ms 绿 / <1500ms 黄 / 超时红）+ 毫秒数」，点一行即换源并保留当前集数；「测速全部」按需触发，播放失败时自动重测。候选会直接传给完整换源面板，不必重搜。
+- 搜索页：结果卡底部直接给出来源胶囊（带延迟圆点），点一下用该源开播并跳 `/watch`；详情弹窗顶部也能选源，并显示「共 N 个来源」。
+- 失败/停用源原本是三条整宽横幅，压成一行可展开的状态条。
+
+**5. 源健康度与搜索策略**
+
+- 单源搜索死线 10s → **15s**（健康源取首页 + 分页本就要 6~8s），单页 `timeoutMs` 与整源死线对齐；客户端是 NDJSON 流式逐源回吐，慢源不拖整体。
+- 自动停用阈值 2 → **3** 次连续失败，阶梯 30 分钟 → 24 小时 → 长期不变。
+- `resolveSource` 增加按 URL 反查兜底（key 对不上时不至于误报「点播源不存在」）；预置源与订阅源按地址去重，同一采集站不再出现两套。
+
+**6. 默认值与工程**
+
+- 首页推荐默认 `hot-list` → **`douban`**（榜单接口常限流，首屏常空），`store` 版本升到 v3 并为「没主动选过」的用户做迁移；跳过片头/片尾默认 90s / 30s，本剧覆盖存 IndexedDB（`skipConfigs`，v4）。
+- 新增 `loading.tsx` / `not-found.tsx` / `top-progress.tsx`（App Router 无路由事件，靠捕获阶段拦 `<a>` 点击 + `popstate` 自己拼进度）/ 封面逐张淡入（`.g-img` → `.g-img-in`）。
+- `DEFAULT_IMAGE_MODE` 环境变量：部署者可指定封面图默认走直连还是内置代理。
+- 清理上游留的死代码（`transmuxTSToMP4` / `deleteEpisodeCache` / `hasCachedSegment` / `fetchUpstreamJson` / `clearLiveRecent` 等），修 4 个红灯单测。
+- 镜像与 CI 换成 `ghcr.io/zhifansong/better-libretv` / `docker.io/zhifansong/better-libretv`。
 
 ## 运维备忘（小内存服务器）
 
@@ -262,7 +330,7 @@ Docker 默认不限制容器日志，长期运行会把小盘撑满；且 `docke
 }
 ```
 
-改完 `systemctl restart docker`（会重启全部容器）。历史镜像长期堆积时，先加临时 swap 再跑一次回收，结束后再删掉 swap 文件：
+改完 `systemctl restart docker`（会重启全部容器，且 log-opts 只对新建容器生效，已有容器需 `compose up -d` 重建）。历史镜像长期堆积时，先加临时 swap 再跑一次回收，结束后再删掉 swap 文件：
 
 ```bash
 dd if=/dev/zero of=/swapfile bs=1M count=2048 && chmod 600 /swapfile
@@ -270,6 +338,8 @@ mkswap /swapfile && swapon /swapfile
 docker image prune -a -f && docker system prune -f
 swapoff /swapfile && rm -f /swapfile
 ```
+
+> 如果 `docker system df` 跑不动，先看 `docker builder prune -a -f`：构建缓存常常比镜像本身大一个数量级。
 
 ## 安全说明
 
