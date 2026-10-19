@@ -967,6 +967,38 @@
 .g-stage .art-video-player .art-bottom {
   padding-bottom: 6px !important;
 }
+/*
+ * 窄屏控制条溢出（实测 iPhone 390pt：控制条可用宽 322px，按钮排到 429px）：
+ * 右侧「全屏」按钮被挤出画面外，用户看不到也点不到 —— Artplayer 默认每个控件 46px
+ * 且从不换行/收缩。这里按可用宽度砍掉桌面专属的控件，并把控件压到 38px。
+ * 截图（screenshot）在触屏上依赖 canvas 截图，本就是桌面玩具；
+ * 网页全屏（fullscreenWeb）在手机上不如元素全屏直观。两个都隐藏。
+ */
+@media (max-width: 560px) {
+  .g-stage .art-video-player .art-control-screenshot,
+  .g-stage .art-video-player .art-control-fullscreenWeb,
+  .g-stage .art-video-player .art-control-pip {
+    display: none !important;
+  }
+  .g-stage .art-video-player .art-control {
+    min-width: 34px !important;
+    padding: 0 7px !important;
+  }
+  .g-stage .art-video-player .art-control-time {
+    padding: 0 3px !important;
+    font-size: 12px !important;
+  }
+}
+/*
+ * 320px 级超窄屏（iPhone SE 横放的竖屏档）再挤 28px：
+ * 手机音量本来就走系统键，控制条里这个滑杆纯占位，直接不显示。
+ */
+@media (max-width: 380px) {
+  .g-stage .art-video-player .art-control-volume {
+    display: none !important;
+  }
+}
+
 
 /*
  * ===== 控制栏画质菜单（m05381 画质选择） =====
