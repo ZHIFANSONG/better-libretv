@@ -582,7 +582,7 @@ function PlaybackPanel() {
           <div className="min-w-0">
             <div className="text-sm text-content">默认跳过片头</div>
             <div className="text-xs text-faint">
-              没单独设过的剧首次播放时自动跳过的秒数，0 = 不跳。首集不生效。
+              没单独设过的剧首次播放时自动跳过的秒数，默认 0 = 不跳。首集不生效。
             </div>
           </div>
           <NumberField
@@ -599,7 +599,7 @@ function PlaybackPanel() {
           <div className="min-w-0">
             <div className="text-sm text-content">默认提前跳片尾</div>
             <div className="text-xs text-faint">
-              距结尾还剩多少秒时直接算作本集结束，0 = 不跳。
+              距结尾还剩多少秒时直接算作本集结束，默认 0 = 不跳。
             </div>
           </div>
           <NumberField

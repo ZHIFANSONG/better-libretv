@@ -317,10 +317,11 @@ export const useAppStore = create<AppState>()(
       recommendSource: 'douban',
       recommendSourceTouched: false,
       autoplayNext: true,
-      // 片头 90s 能盖住绝大多数国产剧片头曲；片尾 30s 是「片尾曲响起来之前」的常见位置。
-      // 两者都只是默认值，播放页可以按剧覆盖，也可以在设置里改成 0 关闭。
-      skipIntroSec: 90,
-      skipOutroSec: 30,
+      // 出厂默认都关（0 秒）：采集站的正片里片头曲长短不一，默认跳 90s 经常吃掉开场，
+      // 用户第一次看常常得手动拖回来。想要跳的用户可以在设置里给全局默认值，
+      // 也可以在播放页按「源+剧」单独设（存 IndexedDB，不跟着默认值走）。
+      skipIntroSec: 0,
+      skipOutroSec: 0,
       // 直连优先：豆瓣封面有公共镜像 + 内置代理两级兜底（见 buildImageCandidates），
       // 默认省服务器流量；老用户保持已持久化的选择不受影响。
       // 部署者可用 DEFAULT_IMAGE_MODE=proxy 下发内置代理优先（最稳定，吃服务器流量）
@@ -791,8 +792,9 @@ export const useAppStore = create<AppState>()(
       // v1：直播源新增归属字段、最近观看新增 sourceUrl。
       // v2：直播源归属改为多引用（fromSubscription 单值 → fromSubscriptions 数组）。
       // v3：首页推荐默认值 hot-list → douban（影视榜单接口常被限流，首屏常空）。
+      // v4：跳过片头/片尾的出厂默认改为 0（90s/30s 默认跳太激进，常把正片开场吃掉）。
       // 此前未声明 version 的存量数据会被视为 v0 并走 migrate 补齐。
-      version: 3,
+      version: 4,
       migrate: (persisted, version) => {
         const state = { ...((persisted ?? {}) as Partial<AppState>) };
         if (!Array.isArray(state.liveRecent)) state.liveRecent = [];
@@ -819,6 +821,14 @@ export const useAppStore = create<AppState>()(
           // 存量用户的出厂默认仍是 hot-list：没主动选过的跟着新默认走，
           // 选过的（touched）保持原样，不能因为改默认值就把用户偏好清掉。
           state.recommendSource = 'douban';
+        }
+        if (version < 4) {
+          // 跳过片头/片尾改成默认关。这两个值没有「用户是否主动改过」的标记，
+          // 老快照里必然带着旧默认（90/30，或用户自己调过的值），无法区分，
+          // 一律归零：宁可让老用户重新设一次，也不让所有人继续被默认跳 90s 吃掉开场。
+          // 按剧单独设过的值存在 IndexedDB（skipConfigs 表），不受这里影响。
+          state.skipIntroSec = 0;
+          state.skipOutroSec = 0;
         }
         return state as AppState;
       },
