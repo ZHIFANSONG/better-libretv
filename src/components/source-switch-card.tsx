@@ -54,6 +54,8 @@ export function SourceSwitchCard({
   const { toast } = useToast();
   const [candidates, setCandidates] = useState<SourceCandidate[]>([]);
   const [testing, setTesting] = useState(false);
+  // 是否已经跑完至少一轮：空列表时用来区分「还没测」和「测了但真没有」
+  const [ran, setRan] = useState(false);
 
   const sources = useMemo(() => {
     // 与搜索页同口径：key 去重、URL 去重（同一采集站可能同时被预置源与订阅源提供）
@@ -105,7 +107,10 @@ export function SourceSwitchCard({
       })
       .catch(() => {})
       .finally(() => {
-        if (!controller.signal.aborted) setTesting(false);
+        if (!controller.signal.aborted) {
+          setTesting(false);
+          setRan(true);
+        }
       });
     return () => controller.abort();
   }, [sources, title, store.yellowFilter]);
@@ -271,6 +276,12 @@ export function SourceSwitchCard({
         <div className="g-srcidle">
           {testing ? (
             <p>正在搜索各源…</p>
+          ) : ran ? (
+            /* 测过一轮还是空的：不能再说「点测速看看哪个快」，那是没测过时的提示，
+               会把「全网都没有这部」误报成「你还没点按钮」 */
+            <p>
+              已搜完 {sources.length} 个源，都没有《{title}》
+            </p>
           ) : (
             <p>共 {sources.length} 个已启用源，点「测速全部」看看哪个最快</p>
           )}
