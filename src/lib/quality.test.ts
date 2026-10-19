@@ -7,7 +7,7 @@ import {
   mergeQualityEntries,
   qualityLabel,
 } from './quality';
-import { parseBestHeight, parseMediaPlaylist } from './quality-probe';
+import { parseBestHeight, parseBestResolution, parseMediaPlaylist } from './quality-probe';
 import type { QualityEntry } from './types';
 
 /** master playlist 样例：三档，其中一个只有 BANDWIDTH 没有 RESOLUTION */
@@ -55,6 +55,22 @@ describe('qualityLabel', () => {
     expect(qualityLabel(undefined)).toBeUndefined();
     expect(qualityLabel(0)).toBeUndefined();
   });
+
+  it('裁切过的宽银幕 4K 靠宽度判成 4K（3840×1608 只按高度会落到 2K）', () => {
+    // 真 4K 原盘 3840×2160 被裁成宽银幕：高度掉到 1600 附近，永远不会靠近 2160
+    expect(qualityLabel(1608, 3840)).toBe('4K');
+    expect(qualityLabel(2024, 3840)).toBe('4K');
+    // 反例：2K 宽没法冒充 4K
+    expect(qualityLabel(1608, 1920)).not.toBe('4K');
+    expect(qualityLabel(1080, 2560)).not.toBe('4K');
+    // 3840×1080 这类双屏/畸变片源：宽度够但高度太低，不能抬成 4K
+    expect(qualityLabel(1080, 3840)).not.toBe('4K');
+  });
+
+  it('宽度缺失时行为与旧版一致（持久化的老条目只有 height）', () => {
+    expect(qualityLabel(1608)).toBe('2K');
+    expect(qualityLabel(1080, undefined)).toBe('1080P');
+  });
 });
 
 describe('parseBestHeight', () => {
@@ -101,6 +117,24 @@ seg0.ts
 720p/index.m3u8
 `;
     expect(parseBestHeight(text)).toBe(720);
+  });
+
+  it('同时给出宽度：宽银幕 4K 的 3840x1608 归一成 宽 3840 / 高 1608', () => {
+    const text = `#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=3573000,RESOLUTION=3840x1608
+4k/index.m3u8
+`;
+    expect(parseBestResolution(text)).toEqual({ width: 3840, height: 1608 });
+    // 高度的旧口径不变，避免所有只关心高度的调用方跟着改
+    expect(parseBestHeight(text)).toBe(1608);
+  });
+
+  it('只有 BANDWIDTH 的档位没有宽度：width 退成 0，不参与判档', () => {
+    const text = `#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=6000000
+only-bandwidth.m3u8
+`;
+    expect(parseBestResolution(text)).toEqual({ width: 0, height: inferHeightFromBitrate(6_000_000) });
   });
 
   it('取短边：正常的 1280x720 不受影响', () => {
@@ -189,7 +223,7 @@ describe('isQualityEntryFresh', () => {
 describe('mergeQualityEntries', () => {
   const T = 1_700_000_000_000;
   const probe = (height?: number, error?: string): QualityEntry => ({ height, from: 'probe', error, timestamp: T });
-  const play = (height: number): QualityEntry => ({ height, from: 'play', timestamp: T });
+  const play = (height: number, width?: number): QualityEntry => ({ height, width, from: 'play', timestamp: T });
   const KEY = 'huang:123';
 
   it('播放实测覆盖此前的「测不出」——单码率源的画质只能这样补上', () => {
@@ -216,6 +250,25 @@ describe('mergeQualityEntries', () => {
     // 反向：后来的低档位不该把已知的高档位拉低
     const back = mergeQualityEntries(next, { [KEY]: play(540) }, T + 2000);
     expect(back[KEY].height).toBe(1080);
+  });
+
+  it('宽度跟着实测值一起留下：否则宽银幕 4K 会被下一次缺宽度的实测打回 2K', () => {
+    // 第一次实测：解码出 3840×1608，标签应为 4K
+    const first = mergeQualityEntries({}, { [KEY]: play(1608, 3840) }, T);
+    expect(qualityLabel(first[KEY].height, first[KEY].width)).toBe('4K');
+
+    // 同一档位再报一次（浏览器换档/重播），上报值恰好没带宽度：宽度不能丢
+    const again = mergeQualityEntries(first, { [KEY]: play(1608) }, T + 1000);
+    expect(again[KEY].width).toBe(3840);
+    expect(qualityLabel(again[KEY].height, again[KEY].width)).toBe('4K');
+
+    // 反向：后来报的是更低的 1080P，按「多次实测取较大值」仍要保留 4K 那一档
+    const lower = mergeQualityEntries(first, { [KEY]: play(1080, 1920) }, T + 2000);
+    expect(qualityLabel(lower[KEY].height, lower[KEY].width)).toBe('4K');
+
+    // 换了更高的一档（如 2560×1440 的 2K 流不会更矮，这里取真 4K 的高度）时宽度跟着换，不留旧值
+    const higher = mergeQualityEntries(first, { [KEY]: play(2160, 3840) }, T + 3000);
+    expect(higher[KEY]).toMatchObject({ height: 2160, width: 3840 });
   });
 
   it('已有明确档位时，不被「测不出」的探测抹掉', () => {

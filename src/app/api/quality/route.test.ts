@@ -36,7 +36,7 @@ vi.mock('@/lib/quality-probe', () => ({
   probeQuality: vi.fn(async () => {
     state.calls++;
     if (state.abort) throw new DOMException('aborted', 'AbortError');
-    return { sourceKey: 'mock', vodId: 'mock', height: 1080 };
+    return { sourceKey: 'mock', vodId: 'mock', height: 1080, width: 1920 };
   }),
 }));
 
@@ -68,6 +68,8 @@ describe('POST /api/quality', () => {
     expect(data.results).toHaveLength(2);
     expect(data.results.map((r) => r.sourceKey).sort()).toEqual(['a', 'b']);
     expect(data.results.every((r) => r.height === 1080)).toBe(true);
+    // 宽度必须一起下发并被缓存：宽银幕 4K 只靠高度会被前端标成 2K
+    expect(data.results.every((r) => r.width === 1920)).toBe(true);
   });
 
   it('探测完成后才写缓存；并发请求缓存未命中时也只会打一次源站', async () => {

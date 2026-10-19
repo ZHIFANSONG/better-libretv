@@ -57,12 +57,29 @@ const TIERS: ReadonlyArray<readonly [number, string]> = [
 ];
 
 /**
- * 高度 → 展示标签：就近取档。
+ * 宽银幕 4K 的判定：宽度门槛。
+ *
+ * 真 4K 原盘是 3840×2160，但采集站对宽银幕电影做裁切后常见 3840×1608、
+ * 3840×2024 —— 高度被裁到 1600~2040，用高度就近取档永远够不到 2160
+ * （1608 距 1440 只有 11.7%，反而被标成「2K」）。因此宽度必须参与判定。
+ * 3200 的门槛高于 2K（2560），低于 4K（3840）裁切后的宽度下限，
+ * 再配 WIDE_4K_MIN_HEIGHT 挡住 3840×1080 这类超宽畸变片源。
+ */
+export const WIDE_4K_MIN_WIDTH = 3200;
+
+/** 宽银幕 4K 的判定：高度门槛（挡住 3840×1080 的双屏/畸变片源） */
+export const WIDE_4K_MIN_HEIGHT = 1400;
+
+/**
+ * 分辨率 → 展示标签：就近取档。
  * 2160 及以上统称 4K（2K/1440 单独一档，避免 1440 被误标成 1080P）。
  * 偏差超过 15% 的按原样展示（如 144 → 144P、240 → 240P）。
+ *
+ * width 可选：只有高度时行为与旧版一致；给了宽度才能识别裁切过的宽银幕 4K。
  */
-export function qualityLabel(height?: number): string | undefined {
+export function qualityLabel(height?: number, width?: number): string | undefined {
   if (!height || height <= 0) return undefined;
+  if (width && width >= WIDE_4K_MIN_WIDTH && height >= WIDE_4K_MIN_HEIGHT) return '4K';
   let best: readonly [number, string] | undefined;
   for (const tier of TIERS) {
     const [value] = tier;
@@ -99,8 +116,12 @@ export function mergeQualityEntries(
     const prev = next[key];
     if (prev?.from === 'play') {
       if (value.from !== 'play') continue;
-      const best = Math.max(prev.height ?? 0, value.height ?? 0);
-      next[key] = { from: 'play', height: best || undefined, timestamp: now };
+      const win = (value.height ?? 0) > (prev.height ?? 0) ? value : prev;
+      const other = win === value ? prev : value;
+      // 宽度必须跟着一起留下：宽银幕 4K 靠「宽 + 高」两维判档，
+      // 若被下一次缺宽度的实测覆盖，标签会从「4K」掉回「2K」
+      const height = (win.height ?? other.height) || undefined;
+      next[key] = { from: 'play', height, width: win.width ?? other.width, timestamp: now };
       continue;
     }
     if (prev?.from === 'probe' && value.from === 'probe' && prev.height !== undefined && value.height === undefined) {

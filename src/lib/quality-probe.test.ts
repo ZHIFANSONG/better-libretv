@@ -210,11 +210,26 @@ describe('probeQuality 降级到分片解析', () => {
 
     const result = await probeQuality({ source: SOURCE, id: '123' });
     expect(result.height).toBe(1080);
+    // 宽度必须一起返回：宽银幕 4K（3840×1608）只靠高度会被前端标成 2K
+    expect(result.width).toBe(1920);
     // 详情接口 + m3u8，仅此两次：多码率源没有理由再拉分片
     expect(urls()).toEqual([
       'https://api.test/api.php/provide/vod?ac=videolist&ids=123',
       PLAYLIST_URL,
     ]);
+  });
+
+  it('宽银幕 4K 的 master playlist：宽度一并透传，前端才能判成 4K', async () => {
+    currentPlaylist = `#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=3573000,RESOLUTION=3840x1608
+4k/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=1280000,RESOLUTION=1280x720
+720/index.m3u8
+`;
+    mocks.fetchUpstream.mockImplementation((url: string) => Promise.resolve(route(url)));
+
+    const result = await probeQuality({ source: SOURCE, id: '123' });
+    expect(result).toMatchObject({ height: 1608, width: 3840 });
   });
 
   it('单码率 m3u8：下沉到 TS 分片，从 SPS 拿到 1080', async () => {
@@ -233,6 +248,8 @@ describe('probeQuality 降级到分片解析', () => {
 
     const result = await probeQuality({ source: SOURCE, id: '123' });
     expect(result.height).toBe(1080);
+    // init segment 里的 VisualSampleEntry 同时带宽度，不能只留高度
+    expect(result.width).toBe(1920);
     expect(urls()).toContain('https://cdn.test/2024/01/abc/init.mp4');
     expect(urls().some((u) => u.endsWith('.m4s'))).toBe(false);
   });

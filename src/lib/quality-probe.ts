@@ -45,33 +45,52 @@ export const QUALITY_PROBE_TIMEOUT_MS = 8000;
  */
 const SEGMENT_BUDGET_MS = 4000;
 
-/** 从 m3u8 文本解析最高档的短边高度；非 master playlist（无 STREAM-INF）返回 undefined */
-export function parseBestHeight(text: string): number | undefined {
+/** 分辨率（宽、高）。宽高已归一成「宽 ≥ 高」，可直接用于判档 */
+export interface ProbeResolution {
+  width: number;
+  height: number;
+}
+
+/**
+ * 从 m3u8 文本解析最高档的分辨率；非 master playlist（无 STREAM-INF）返回 undefined。
+ *
+ * 返回宽度是必需的：采集站裁切过的宽银幕 4K 是 3840×1608，只拿高度判档会落进 2K。
+ * 宽度维度只能从 RESOLUTION 来，BANDWIDTH 反推的那一档没有宽度（width 给 0）。
+ */
+export function parseBestResolution(text: string): ProbeResolution | undefined {
   if (!text.includes('#EXT-X-STREAM-INF')) return undefined;
-  let best: number | undefined;
-  let pending: { bandwidth: number; height?: number } | undefined;
+  let best: ProbeResolution | undefined;
+  let pending: { bandwidth: number; width?: number; height?: number } | undefined;
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (line.startsWith('#EXT-X-STREAM-INF')) {
       const bandwidth = parseInt(line.match(/BANDWIDTH=(\d+)/)?.[1] || '0', 10);
       const resolution = line.match(/RESOLUTION=(\d+)x(\d+)/);
-      // 取短边而非第二个数字：档位本就按短边定义（720P = 1280×720 的 720），
-      // 采集站常把宽高写反（如把 1280×720 写成 720x1280），按 height 取会得到 1280 → 标成 2K
+      // 宽高归一到「宽 ≥ 高」：档位本就按短边定义（720P = 1280×720 的 720），
+      // 采集站常把宽高写反（如把 1280×720 写成 720x1280），按顺序取会把竖屏片源标成 2K
+      const a = resolution ? parseInt(resolution[1], 10) : 0;
+      const b = resolution ? parseInt(resolution[2], 10) : 0;
       pending = {
         bandwidth,
-        height: resolution
-          ? Math.min(parseInt(resolution[1], 10), parseInt(resolution[2], 10))
-          : undefined,
+        width: resolution ? Math.max(a, b) : undefined,
+        height: resolution ? Math.min(a, b) : undefined,
       };
       continue;
     }
     if (!line || line.startsWith('#') || !pending) continue;
     // 只有 BANDWIDTH 的源站按常见转码参数反推高度，与播放器的档位命名口径一致
     const height = pending.height ?? (pending.bandwidth > 0 ? inferHeightFromBitrate(pending.bandwidth) : undefined);
-    if (height && (best === undefined || height > best)) best = height;
+    if (height && (best === undefined || height > best.height)) {
+      best = { width: pending.width ?? 0, height };
+    }
     pending = undefined;
   }
   return best;
+}
+
+/** 从 m3u8 文本解析最高档的短边高度；非 master playlist（无 STREAM-INF）返回 undefined */
+export function parseBestHeight(text: string): number | undefined {
+  return parseBestResolution(text)?.height;
 }
 
 /** 媒体列表里解析分片所需的片段信息 */
@@ -235,7 +254,7 @@ async function probeSegmentResolution(
   playlistUrl: string,
   source: SourceConfig,
   signal: AbortSignal
-): Promise<number | undefined> {
+): Promise<ProbeResolution | undefined> {
   const list = parseMediaPlaylist(text);
   if (!list.firstSegment) return undefined;
 
@@ -245,7 +264,7 @@ async function probeSegmentResolution(
     if (initUrl) {
       const buf = await fetchBytesPrefix(initUrl, INIT_PREFIX_BYTES, source, signal);
       const found = buf ? parseMp4VideoResolution(buf) : undefined;
-      if (found) return found.height;
+      if (found) return { width: found.width, height: found.height };
     }
   }
 
@@ -265,8 +284,8 @@ async function probeSegmentResolution(
   }
 
   // 按内容判断容器比按扩展名可靠：不少源的分片没有扩展名
-  if (looksLikeMp4(buf)) return parseMp4VideoResolution(buf)?.height;
-  return parseTsVideoResolution(buf)?.height;
+  if (looksLikeMp4(buf)) return parseMp4VideoResolution(buf);
+  return parseTsVideoResolution(buf);
 }
 
 /** 取影片的播放地址列表（与 /api/detail 同逻辑：列表接口优先，拿不到再爬详情页） */
@@ -319,7 +338,7 @@ async function probeEpisode(
   source: SourceConfig,
   merged: AbortSignal,
   signal?: AbortSignal
-): Promise<{ height?: number; error?: string }> {
+): Promise<{ width?: number; height?: number; error?: string }> {
   // 末尾允许 ?query / #fragment：不少源在 .m3u8 后挂鉴权参数或分片锚点
   const isM3u8 = /\.m3u8([?#]|$)/i.test(target);
 
@@ -327,7 +346,8 @@ async function probeEpisode(
     // mp4 直链：moov 里有分辨率。未 faststart 的文件 moov 在尾部，前缀拿不到 → 仍未知
     if (!/\.mp4([?#]|$)/i.test(target)) return {};
     const buf = await fetchBytesPrefix(target, SEGMENT_PREFIX_BYTES, source, merged);
-    return { height: buf ? parseMp4VideoResolution(buf)?.height : undefined };
+    const found = buf ? parseMp4VideoResolution(buf) : undefined;
+    return found ? { width: found.width, height: found.height } : {};
   }
 
   const res = await fetchUpstream(target, {
@@ -338,11 +358,12 @@ async function probeEpisode(
   if (!res.ok) return { error: `HTTP ${res.status}` };
   const text = await readTextPrefix(res, M3U8_MAX_BYTES);
 
-  const height = parseBestHeight(text);
-  if (height !== undefined) return { height };
+  const best = parseBestResolution(text);
+  if (best) return { width: best.width || undefined, height: best.height };
 
   // 单码率媒体列表：m3u8 里没有档位信息，下沉到分片挖分辨率
-  return { height: await withSegmentBudget(target, text, source, merged, signal) };
+  const found = await withSegmentBudget(target, text, source, merged, signal);
+  return found ? { width: found.width || undefined, height: found.height } : {};
 }
 
 /**
@@ -374,7 +395,7 @@ export async function probeQuality(item: QualityProbeItem, signal?: AbortSignal)
     let lastError: string | undefined;
     for (const target of probeEpisodeOrder(episodes)) {
       const r = await probeEpisode(target, source, merged, signal);
-      if (r.height !== undefined) return { ...base, height: r.height };
+      if (r.height !== undefined) return { ...base, width: r.width, height: r.height };
       if (r.error) lastError = r.error;
       // 源站级拒绝（401/403）换集也不会变，不必再耗一轮超时
       if (lastError && /^HTTP (401|403)$/.test(lastError)) break;
@@ -402,7 +423,7 @@ async function withSegmentBudget(
   source: SourceConfig,
   merged: AbortSignal,
   clientSignal?: AbortSignal
-): Promise<number | undefined> {
+): Promise<ProbeResolution | undefined> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new DOMException('分片解析超时', 'TimeoutError')), SEGMENT_BUDGET_MS);
   try {

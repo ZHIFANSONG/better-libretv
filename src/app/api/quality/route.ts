@@ -24,6 +24,8 @@ const FAIL_CACHE_TTL = 2 * 60 * 1000;
 
 interface CachedProbe {
   height?: number;
+  /** 宽度与高度一起缓存：宽银幕 4K（3840×1608）只靠高度会被标成 2K */
+  width?: number;
   error?: string;
 }
 
@@ -93,14 +95,20 @@ export async function POST(req: Request) {
     const key = cacheKey(item);
     const cached = getCache<CachedProbe>(key);
     if (cached) {
-      return { sourceKey: item.source.key, vodId: item.id, height: cached.height, error: cached.error };
+      return {
+        sourceKey: item.source.key,
+        vodId: item.id,
+        height: cached.height,
+        width: cached.width,
+        error: cached.error,
+      };
     }
     let pending = inflight.get(key);
     if (!pending) {
       pending = (async () => {
         try {
           const result = await probeQuality(item, req.signal);
-          const value: CachedProbe = { height: result.height, error: result.error };
+          const value: CachedProbe = { height: result.height, width: result.width, error: result.error };
           // 「测不出」（height 缺失且无 error）同样是有效结论，也要缓存，
           // 否则单码率源每次展开都会被重复探测一遍
           setCache(key, value, result.error ? FAIL_CACHE_TTL : OK_CACHE_TTL);
@@ -113,7 +121,13 @@ export async function POST(req: Request) {
       inflight.set(key, pending);
     }
     const value = await pending;
-    return { sourceKey: item.source.key, vodId: item.id, height: value.height, error: value.error };
+    return {
+      sourceKey: item.source.key,
+      vodId: item.id,
+      height: value.height,
+      width: value.width,
+      error: value.error,
+    };
   };
 
   if (!isStream) {

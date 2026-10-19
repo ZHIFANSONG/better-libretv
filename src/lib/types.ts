@@ -73,6 +73,12 @@ export interface SourceSearchOutcome {
  */
 export interface QualityEntry {
   height?: number;
+  /**
+   * 视频宽度（像素），可选。
+   * 只靠高度判档会把裁切过的宽银幕 4K（3840×1608）标成「2K」，
+   * 因此宽度与高度一起存、一起展示（见 quality.ts 的 WIDE_4K_MIN_WIDTH）。
+   */
+  width?: number;
   from: 'play' | 'probe';
   /**
    * 探测失败原因（如 `HTTP 403`、`请求超时`）。
@@ -95,6 +101,8 @@ export interface QualityProbeResult {
   sourceKey: string;
   vodId: string;
   height?: number;
+  /** 宽度：与 height 一起用于识别裁切过的宽银幕 4K，缺失时按高度判档 */
+  width?: number;
   error?: string;
 }
 

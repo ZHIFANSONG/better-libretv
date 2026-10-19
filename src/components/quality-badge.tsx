@@ -34,7 +34,7 @@ export function QualityBadge({
     );
   }
   if (!entry) return null;
-  const label = qualityLabel(entry.height);
+  const label = qualityLabel(entry.height, entry.width);
   if (!label) {
     return (
       <i
@@ -49,7 +49,8 @@ export function QualityBadge({
       </i>
     );
   }
-  const hd = (entry.height ?? 0) >= 1080;
+  // 宽度兜底：3840×1608 的宽银幕 4K 高度只有 1608，按高度判档会把它踢回标清配色
+  const hd = (entry.height ?? 0) >= 1080 || (entry.width ?? 0) >= 1920;
   return (
     <i
       className={cn('g-qb', hd ? 'g-qb-hd' : 'g-qb-sd', className)}

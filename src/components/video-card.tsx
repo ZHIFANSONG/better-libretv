@@ -196,6 +196,7 @@ export function AggregatedCard({
           const key = qualityKey(result.sourceKey, result.vodId);
           const entry: QualityEntry = {
             height: result.height,
+            width: result.width,
             from: 'probe',
             error: result.error,
             timestamp: Date.now(),

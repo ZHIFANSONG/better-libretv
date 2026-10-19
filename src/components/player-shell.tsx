@@ -69,11 +69,12 @@ interface PlayerShellProps {
   onEnded?: () => void;
   onPause?: (position: number, duration: number) => void;
   /**
-   * 实测画质（视频高度，像素）。
+   * 实测画质（视频高度，像素；宽度可选）。
    * 单码率 m3u8 / 直链的分辨率只能等解码后才知道，播放一次后回写缓存，
    * 下次搜索同一部剧就能直接显示画质，不必再探测。
+   * 宽度用于识别裁切过的宽银幕 4K（3840×1608 只靠高度会被判成 2K）。
    */
-  onQuality?: (height: number) => void;
+  onQuality?: (height: number, width?: number) => void;
   /** 恢复策略判源不可用（重试耗尽/格式硬失败）时回调：父级弹出换源面板 */
   onRequestSwitchSource?: (reason: string) => void;
   /**
@@ -193,9 +194,9 @@ export function PlayerShell({
     introSec, outroSec, onUndoIntro,
   };
 
-  /** 上报实测画质：多次上报取大值由调用方决定，这里只管把拿到的高度传出去 */
-  const reportQuality = (height: number) => {
-    if (height > 0) propsRef.current.onQuality?.(height);
+  /** 上报实测画质：多次上报取大值由调用方决定，这里只管把拿到的分辨率传出去 */
+  const reportQuality = (height: number, width?: number) => {
+    if (height > 0) propsRef.current.onQuality?.(height, width && width > 0 ? width : undefined);
   };
 
   // 跨集共享、每次换集重置的播放链路状态
@@ -473,7 +474,7 @@ export function PlayerShell({
       index,
       label:
         typeof level.height === 'number' && level.height > 0
-          ? qualityLabel(level.height) || `${level.height}P`
+          ? qualityLabel(level.height, level.width) || `${level.height}P`
           : `档位 ${index + 1}`,
       bitrate: level.bitrate,
     }));
@@ -493,7 +494,8 @@ export function PlayerShell({
     const currentLevel = hls.currentLevel;
     // 解码后的真实分辨率：单码率源的清单里没有档位，这是唯一可信的画质来源
     const playing = art.video?.videoHeight ?? 0;
-    const playingLabel = qualityLabel(playing) || (playing > 0 ? `${playing}P` : '');
+    const playingWidth = art.video?.videoWidth ?? 0;
+    const playingLabel = qualityLabel(playing, playingWidth) || (playing > 0 ? `${playing}P` : '');
     /*
      * 档位数 < 2 不再把整个菜单摘掉。
      *
@@ -504,8 +506,8 @@ export function PlayerShell({
      */
     const single = options.length < 2;
     const key = single
-      ? `single|${playing}|${options.map((o) => o.label).join(',')}`
-      : `${manual}|${currentLevel}|${playing}|${options.map((o) => o.label).join(',')}`;
+      ? `single|${playing}|${playingWidth}|${options.map((o) => o.label).join(',')}`
+      : `${manual}|${currentLevel}|${playing}|${playingWidth}|${options.map((o) => o.label).join(',')}`;
     let menu = qualityMenuRef.current;
     if (menu && menu.key === key && menu.root.isConnected) return;
 
@@ -687,11 +689,13 @@ export function PlayerShell({
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       recoveryRef.current?.markHealthy();
-      // master playlist 的档位高度：多码率源在这里就能拿到上限
-      const heights = hls.levels
-        .map((level) => level.height)
-        .filter((h): h is number => typeof h === 'number' && h > 0);
-      if (heights.length > 0) reportQuality(Math.max(...heights));
+      // master playlist 的档位高度：多码率源在这里就能拿到上限。
+      // 上报时带上最高档的宽度——裁切过的宽银幕 4K（3840×1608）只靠高度会被判成 2K
+      const rated = hls.levels.filter((level) => typeof level.height === 'number' && level.height > 0);
+      if (rated.length > 0) {
+        const top = rated.reduce((a, b) => (b.height > a.height ? b : a));
+        reportQuality(top.height, top.width);
+      }
       // 档位表就绪后立刻刷新控制栏画质菜单（单码率源在这里只有 1 档，菜单就不出现）
       void refreshQualityMenu();
       void restoreAndStart();
@@ -725,7 +729,7 @@ export function PlayerShell({
     // 注意 data.level 是档位下标，分辨率在 levelInfo 上
     hls.on(Hls.Events.LEVEL_LOADED, (_evt, data) => {
       const height = data.levelInfo?.height;
-      if (typeof height === 'number') reportQuality(height);
+      if (typeof height === 'number') reportQuality(height, data.levelInfo?.width);
     });
     /*
      * ABR 自动切档本身不经过我们的菜单：不放这条监听，按钮上会一直显示起播那一档，
@@ -898,8 +902,9 @@ export function PlayerShell({
      */
     const reportVideoHeight = () => {
       const height = art.video?.videoHeight;
+      const width = art.video?.videoWidth;
       if (typeof height !== 'number' || height <= 0) return;
-      reportQuality(height);
+      reportQuality(height, typeof width === 'number' && width > 0 ? width : undefined);
       // 单档源（采集站常态）的画质胶囊只能靠实测值填字：清单里没有任何档位信息，
       // 解码后拿到 videoHeight 才算知道在放几 P，所以这里必须顺手刷一次菜单
       void refreshQualityMenu();

@@ -309,11 +309,12 @@ function WatchContent() {
                   onTimeUpdate={handleProgress}
                   onPause={handleProgress}
                   onEnded={handleEnded}
-                  onQuality={(height) => {
-                    // 播放实测比探测结论更权威：回写后搜索卡片、换源卡、详情弹窗同时更新
+                  onQuality={(height, width) => {
+                    // 播放实测比探测结论更权威：回写后搜索卡片、换源卡、详情弹窗同时更新。
+                    // width 一起存：宽银幕 4K（3840×1608）必须靠宽度才判得出 4K
                     if (!sourceKey || !vodId) return;
                     useAppStore.getState().setQuality({
-                      [qualityKey(sourceKey, vodId)]: { height, from: 'play', timestamp: Date.now() },
+                      [qualityKey(sourceKey, vodId)]: { height, width, from: 'play', timestamp: Date.now() },
                     });
                   }}
                   introSec={introSec}

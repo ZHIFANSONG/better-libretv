@@ -186,6 +186,7 @@ export function SourceSwitchCard({
         (result) => {
           collected[qualityKey(result.sourceKey, result.vodId)] = {
             height: result.height,
+            width: result.width,
             from: 'probe',
             error: result.error,
             timestamp: Date.now(),
