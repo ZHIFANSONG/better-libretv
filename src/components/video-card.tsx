@@ -280,7 +280,9 @@ export function AggregatedCard({
          */}
         <div className="g-rcard-src" onClick={(e) => e.stopPropagation()}>
           {group.items.slice(0, 5).map((it) => {
-            const key = `${it.sourceKey}_${it.vodId}`;
+            // key 必须与 qualityKey / probing / qualities 用同一套分隔符（`:`），
+            // 原先这里用 `_` 拼 key，徽章永远取不到值，测完也不亮
+            const key = qualityKey(it.sourceKey, it.vodId);
             const h = sourceHealth[it.sourceKey];
             const lv = latencyLevel({ ok: h?.ok, ms: h?.ms });
             return (

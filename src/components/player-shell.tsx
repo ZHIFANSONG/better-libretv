@@ -310,8 +310,10 @@ export function PlayerShell({
       return;
     }
 
-    const currentLevel = hls.currentLevel; // -1 = 自动
-    const key = `${currentLevel}|${art.video?.videoHeight ?? 0}|${options.map((o) => o.label).join(',')}`;
+    // manualLevel === -1 才是「自动」；currentLevel 只是当前在播档位，两者不能混用
+    const manual = hls.manualLevel;
+    const currentLevel = hls.currentLevel;
+    const key = `${manual}|${currentLevel}|${art.video?.videoHeight ?? 0}|${options.map((o) => o.label).join(',')}`;
     let menu = qualityMenuRef.current;
     if (menu && menu.key === key && menu.root.isConnected) return;
 
@@ -360,9 +362,9 @@ export function PlayerShell({
     menu.key = key;
     // 按钮上直接写当前画质：正常情况下用户不需要展开菜单就已经知道自己在看几 P
     const playing = art.video?.videoHeight ?? 0;
-    const current = currentLevel >= 0 ? options[currentLevel] : undefined;
-    const headline = (current?.label ?? qualityLabel(playing)) || (playing ? `${playing}P` : '画质');
-    menu.button.textContent = currentLevel < 0 ? `自动 ${headline === '画质' ? '' : `· ${headline}`}`.trim() : headline;
+    const active = manual >= 0 ? options.find((o) => o.index === manual) : undefined;
+    const headline = (active?.label ?? qualityLabel(playing)) || (playing ? `${playing}P` : '画质');
+    menu.button.textContent = manual < 0 ? `自动 ${headline === '画质' ? '' : `· ${headline}`}`.trim() : headline;
     menu.button.title = '切换清晰度';
 
     menu.list.textContent = '';
@@ -384,7 +386,7 @@ export function PlayerShell({
       menu!.list.appendChild(item);
     };
 
-    makeItem('自动', currentLevel < 0, () => {
+    makeItem('自动', manual < 0, () => {
       const self = hlsRef.current;
       if (!self) return;
       // 回到自动之前先放开手动限制，否则 hls 会继续锁在 currentLevel 上
@@ -393,7 +395,7 @@ export function PlayerShell({
       refreshQualityMenu();
     });
     options.forEach((o) => {
-      makeItem(o.label, currentLevel === o.index, () => {
+      makeItem(o.label, manual === o.index, () => {
         const self = hlsRef.current;
         if (!self) return;
         self.currentLevel = o.index;
