@@ -282,7 +282,10 @@ async function fetchEpisodes(source: SourceConfig, id: string, signal: AbortSign
     }
   }
 
-  const detailRoot = (source.detail || '').replace(/\/+$/, '');
+  // 详情页根地址：显式 detail 优先，其次用接口地址的 origin 推导——
+  // 与 /api/detail 同口径。种子源普遍没有 detail 字段，只用 source.detail 会让
+  // 「列表接口拿不到集数」的源在探测阶段直接返回空，画质永远是「未知」
+  const detailRoot = (source.detail || originOf(source.url)).replace(/\/+$/, '');
   if (!/^https?:\/\//.test(detailRoot)) return [];
   const verdict = await checkUpstreamAllowed(detailRoot);
   if (!verdict.ok) return [];

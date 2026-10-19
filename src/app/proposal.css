@@ -1041,6 +1041,17 @@
   background: rgba(0, 0, 0, 0.75);
   border-color: rgba(255, 255, 255, 0.32);
 }
+/*
+ * 单档源（采集站常态）：胶囊退化成只读画质标签，不再是「能点开的下拉」。
+ * 去掉箭头感与 hover 变亮，避免暗示这里还有别的选项；但仍常驻显示 1080P / 720P。
+ */
+.g-qmenu.single .g-qmenu-btn {
+  cursor: default;
+  opacity: 0.5;
+}
+.g-qmenu.single:hover .g-qmenu-btn {
+  opacity: 0.85;
+}
 .g-qmenu-list {
   position: absolute;
   top: calc(100% + 6px);

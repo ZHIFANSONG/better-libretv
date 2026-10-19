@@ -320,6 +320,30 @@ seg0.ts
     expect(urls().filter((u) => u === PLAYLIST_URL)).toHaveLength(1);
   });
 
+  it('源没有 detail 字段时，详情页根地址用接口 origin 兜底', async () => {
+    // 种子源普遍不填 detail：只认 source.detail 的话，列表接口一拿不到集数就直接空返回，
+    // 画质永远「未知」——必须和 /api/detail 一样退回接口 origin + AppleCMS 详情页路径
+    const DETAIL_PAGE = 'https://api.test/index.php/vod/detail/id/123.html';
+    mocks.fetchUpstream.mockClear();
+    mocks.fetchUpstream.mockImplementation((url: string) => {
+      if (url.includes('ac=videolist')) {
+        return Promise.resolve(new Response(JSON.stringify({ list: [] }), { status: 200 }));
+      }
+      if (url === DETAIL_PAGE) {
+        return Promise.resolve(
+          new Response(`<h1>测试影片</h1><a href="$https://cdn.test/2024/01/abc/index.m3u8">播放</a>`, { status: 200 })
+        );
+      }
+      if (url === PLAYLIST_URL) return Promise.resolve(new Response(SINGLE_TS, { status: 200 }));
+      if (url.endsWith('.ts')) return Promise.resolve(bytesResponse(buildTs()));
+      return Promise.resolve(new Response('not found', { status: 404 }));
+    });
+
+    const result = await probeQuality({ source: SOURCE, id: '123' });
+    expect(result.height).toBe(1080);
+    expect(urls()).toContain(DETAIL_PAGE);
+  });
+
   it('无效的源地址：返回错误而不是静默「未知」', async () => {
     const result = await probeQuality({ source: { ...SOURCE, url: 'not-a-url' }, id: '123' });
     expect(result.error).toBeDefined();

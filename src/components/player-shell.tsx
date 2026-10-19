@@ -300,8 +300,8 @@ export function PlayerShell({
       bitrate: level.bitrate,
     }));
 
-    // 档位数 < 2 就没有「选」的意义：移除按钮，避免留一个空胶囊
-    if (options.length < 2) {
+    // 清单还没解析出档位时（hls 刚创建）不留空胶囊，等 MANIFEST_PARSED 再来
+    if (options.length === 0) {
       const menu = qualityMenuRef.current;
       if (menu) {
         menu.root.remove();
@@ -313,7 +313,21 @@ export function PlayerShell({
     // manualLevel === -1 才是「自动」；currentLevel 只是当前在播档位，两者不能混用
     const manual = hls.manualLevel;
     const currentLevel = hls.currentLevel;
-    const key = `${manual}|${currentLevel}|${art.video?.videoHeight ?? 0}|${options.map((o) => o.label).join(',')}`;
+    // 解码后的真实分辨率：单码率源的清单里没有档位，这是唯一可信的画质来源
+    const playing = art.video?.videoHeight ?? 0;
+    const playingLabel = qualityLabel(playing) || (playing > 0 ? `${playing}P` : '');
+    /*
+     * 档位数 < 2 不再把整个菜单摘掉。
+     *
+     * 采集站几乎全是单码率（一部片一条 m3u8），按「没得选就别显示」的做法，
+     * 真实内容上这个胶囊永远不会出现——用户的原话就是「现在的播放完全不知道是什么画质」。
+     * 所以拆成两种形态：多档 = 可切的下拉；单档 = 只读胶囊，把实测档位直接写在脸上，
+     * 点一下说明为什么切不了（而不是给一个点不动的灰按钮）。
+     */
+    const single = options.length < 2;
+    const key = single
+      ? `single|${playing}|${options.map((o) => o.label).join(',')}`
+      : `${manual}|${currentLevel}|${playing}|${options.map((o) => o.label).join(',')}`;
     let menu = qualityMenuRef.current;
     if (menu && menu.key === key && menu.root.isConnected) return;
 
@@ -337,6 +351,11 @@ export function PlayerShell({
 
       button.addEventListener('click', (e) => {
         e.stopPropagation();
+        // 单档源（采集站常态）没有可切的东西：点一下给个解释，比弹出一个只有一项的列表实在
+        if (root.classList.contains('single')) {
+          showHint(`本片源只有 ${button.textContent} 一档清晰度`);
+          return;
+        }
         const open = list.style.display !== 'none';
         if (open) {
           closeQualityMenu();
@@ -361,11 +380,27 @@ export function PlayerShell({
 
     menu.key = key;
     // 按钮上直接写当前画质：正常情况下用户不需要展开菜单就已经知道自己在看几 P
-    const playing = art.video?.videoHeight ?? 0;
     const active = manual >= 0 ? options.find((o) => o.index === manual) : undefined;
-    const headline = (active?.label ?? qualityLabel(playing)) || (playing ? `${playing}P` : '画质');
-    menu.button.textContent = manual < 0 ? `自动 ${headline === '画质' ? '' : `· ${headline}`}`.trim() : headline;
-    menu.button.title = '切换清晰度';
+    const headline =
+      (single ? playingLabel : active?.label ?? playingLabel) ||
+      (single ? options[0]?.label : '') ||
+      '';
+    menu.root.classList.toggle('single', single);
+    menu.button.textContent = single
+      ? headline || '画质未知'
+      : manual < 0
+        ? `自动${headline ? ` · ${headline}` : ''}`
+        : headline || '画质';
+    menu.button.title = single ? '本片源只有一档清晰度，无法切换' : '切换清晰度';
+    // 单档时不展开下拉：列表里只有一个和按钮重复的档位，点开纯属浪费一次点击
+    if (single) {
+      menu.list.textContent = '';
+      menu.list.style.display = 'none';
+      menu.root.classList.remove('open');
+      menu.list.style.pointerEvents = 'none';
+      return;
+    }
+    menu.list.style.pointerEvents = '';
 
     menu.list.textContent = '';
     const makeItem = (label: string, active: boolean, onPick: () => void, hint?: string) => {
@@ -639,7 +674,11 @@ export function PlayerShell({
      */
     const reportVideoHeight = () => {
       const height = art.video?.videoHeight;
-      if (typeof height === 'number' && height > 0) reportQuality(height);
+      if (typeof height !== 'number' || height <= 0) return;
+      reportQuality(height);
+      // 单档源（采集站常态）的画质胶囊只能靠实测值填字：清单里没有任何档位信息，
+      // 解码后拿到 videoHeight 才算知道在放几 P，所以这里必须顺手刷一次菜单
+      void refreshQualityMenu();
     };
     art.on('video:canplay', reportVideoHeight);
     art.on('video:playing', reportVideoHeight);
