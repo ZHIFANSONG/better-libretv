@@ -342,30 +342,6 @@ CI 校验 tag 与 `package.json` 版本一致后，自动构建并推送 `ghcr.i
 - 清理上游遗留的死代码，并修复若干失效单测。
 - 发布镜像由仓库自带的 GitHub Actions 工作流构建，同时推送 GHCR 与 Docker Hub（amd64 / arm64 双架构）。
 
-## 运维备忘（小内存服务器）
-
-Docker 默认不限制容器日志，长期运行会把小盘撑满；且 `dockerd` 在统计存储（`docker system df` / 批量 `rmi`）时会一次性遍历所有 overlay 层，内存较小的机器上容易被内核 OOM 杀掉，连带所有容器重启。建议在 `/etc/docker/daemon.json` 里加日志轮转：
-
-```json
-{
-  "log-driver": "json-file",
-  "log-opts": { "max-size": "10m", "max-file": "3" }
-}
-```
-
-改完 `systemctl restart docker`（会重启全部容器，且 log-opts 只对新建容器生效，已有容器需 `compose up -d` 重建）。历史镜像长期堆积时，先加临时 swap 再跑一次回收，结束后再删掉 swap 文件：
-
-```bash
-dd if=/dev/zero of=/swapfile bs=1M count=2048 && chmod 600 /swapfile
-mkswap /swapfile && swapon /swapfile
-docker image prune -a -f && docker system prune -f
-swapoff /swapfile && rm -f /swapfile
-```
-
-> 如果 `docker system df` 跑不动，先看 `docker builder prune -a -f`：构建缓存常常比镜像本身大一个数量级。
->
-> 以上命令会删除未被引用的镜像与构建缓存，执行前请确认没有需要保留的历史版本（例如用于回滚的旧 tag）。
-
 ## 安全说明
 
 - 密码只保存在服务端环境变量中，前端不持有任何可重放凭证。
