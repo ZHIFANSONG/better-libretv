@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from './icon';
 import { useToast } from './toast';
 
@@ -34,9 +34,13 @@ export function SkipConfigButton({
   onReset: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // 向上弹：动作行永远贴在信息卡底部，弹层向下必定被视口切掉（1440x900 下按钮 y≈787，
+  // 弹层要高 ~300px），所以打开时量一下下方空间，不够就翻到按钮上方
+  const [up, setUp] = useState(false);
   const [draftIntro, setDraftIntro] = useState(String(introSec));
   const [draftOutro, setDraftOutro] = useState(String(outroSec));
   const wrapRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
   // 每次打开都用最新生效值重置草稿：关掉再打开不该留着上次没提交的输入
@@ -46,6 +50,21 @@ export function SkipConfigButton({
       setDraftOutro(String(outroSec));
     }
   }, [open, introSec, outroSec]);
+
+  // 量完再画，避免先向下弹一下再跳上去的闪动
+  useLayoutEffect(() => {
+    if (!open) {
+      setUp(false);
+      return;
+    }
+    const btn = wrapRef.current?.getBoundingClientRect();
+    const pop = popRef.current?.getBoundingClientRect();
+    if (!btn || !pop) return;
+    const gap = 8;
+    const below = window.innerHeight - btn.bottom - gap;
+    const above = btn.top - gap;
+    setUp(below < pop.height && above > below);
+  }, [open]);
 
   // 点外面关闭。用 pointerdown 而不是 click：否则点按钮本身会先关再开，闪一下
   useEffect(() => {
@@ -97,7 +116,12 @@ export function SkipConfigButton({
       </button>
 
       {open && (
-        <div className="g-skip-pop" role="dialog" aria-label="跳过片头片尾设置">
+        <div
+          ref={popRef}
+          className={up ? 'g-skip-pop up' : 'g-skip-pop'}
+          role="dialog"
+          aria-label="跳过片头片尾设置"
+        >
           <div className="g-skip-row">
             <label htmlFor="g-skip-intro">跳过片头</label>
             <div className="g-skip-input">
@@ -130,7 +154,10 @@ export function SkipConfigButton({
               <s>秒</s>
             </div>
           </div>
-          <p className="g-skip-tip">填 0 表示关闭。改动只保存在这台设备，应用到本剧全部剧集。</p>
+          <p className="g-skip-tip">
+            填 0 表示关闭。改动只保存在这台设备，应用到本剧全部剧集；想改所有剧的默认秒数，去「设置 →
+            偏好设置 → 播放与过滤」。
+          </p>
           {introDisabledHint && <p className="g-skip-tip">{introDisabledHint}</p>}
           <div className="g-skip-acts">
             {hasOverride && (

@@ -1269,8 +1269,18 @@
 :root:not(.dark) .g-skip-pop {
   background: rgba(255, 255, 255, 0.97);
 }
+/* 按钮贴在信息卡底部，弹层向下会被视口切掉：空间不够时翻到按钮上方（组件里量完再挂 .up） */
+.g-skip-pop.up {
+  top: auto;
+  bottom: calc(100% + 8px);
+  animation-name: g-skip-in-up;
+}
 @keyframes g-skip-in {
   from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes g-skip-in-up {
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .g-skip-row {
