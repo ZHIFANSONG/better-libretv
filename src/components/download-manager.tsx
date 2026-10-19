@@ -22,6 +22,8 @@ import { detectSavingCapability, pickSaveTarget } from '@/lib/download-saver';
  */
 
 const MAX_CONCURRENT_DOWNLOADS = 3;
+/** 进度落库节流间隔：整集动辄上千分片，逐片「写库 + 全量查询 + setState」会把长任务页面拖垮 */
+const PROGRESS_PERSIST_INTERVAL_MS = 1000;
 const ADD_TASK_EVENT = 'libretv:add-download';
 const SHOW_MANAGER_EVENT = 'libretv:show-download-manager';
 
@@ -63,12 +65,18 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
       running.current.set(entry.id, { abort, pause, hasTarget });
       await updateEntry(entry.id, { status: 'downloading' });
 
+      // 进度：UI 走本地 state 实时刷新，落库按固定间隔节流。整集动辄上千分片，
+      // 逐片 updateEntry（写库 + 全量查询 + setState）会让页面越下越卡，
+      // 极端情况下长任务被浏览器判定为无响应
+      let lastPersistAt = 0;
       const onProgress = (p: DownloadProgress) => {
-        void updateEntry(entry.id, {
-          finished: p.current,
-          total: p.total,
-          status: p.status === 'done' ? 'completed' : p.status === 'error' ? 'error' : 'downloading',
-        });
+        const status = p.status === 'done' ? 'completed' : p.status === 'error' ? 'error' : 'downloading';
+        setTasks((prev) => prev.map((t) => (t.id === entry.id ? { ...t, finished: p.current, total: p.total, status } : t)));
+        const now = Date.now();
+        // 状态切换（完成/失败/处理中）必须立刻持久化，纯进度才节流
+        if (p.status === 'downloading' && now - lastPersistAt < PROGRESS_PERSIST_INTERVAL_MS) return;
+        lastPersistAt = now;
+        void db.downloads.update(entry.id, { finished: p.current, total: p.total, status, updatedAt: now });
       };
 
       const job = runDownloadJob({

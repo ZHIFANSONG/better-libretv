@@ -165,6 +165,9 @@ export function PlayerShell({
   const videoErrorRetryUsedRef = useRef(false);
   // 进度恢复每集只执行一次（MANIFEST_PARSED 可能因代理回退再次触发）
   const restoredRef = useRef(false);
+  // 「等时长就绪再恢复」挂在 video 上的监听清理函数：
+  // 换集 / 代理回退重建 hls / 卸载时必须摘掉，否则旧监听会在新一集上误恢复进度
+  const restoreCleanupRef = useRef<(() => void) | null>(null);
   // timeupdate 续跑预取的游标：必须按集清零，否则会沿用上一集的时间戳推迟首次续跑
   const lastPrefetchEnsureRef = useRef(0);
   // setupHls 可能改走代理形式，video:error 重试要用最近一次的地址
@@ -242,36 +245,70 @@ export function PlayerShell({
    * 注意：不销毁 ArtPlayer，只销毁并重建 hls，从而保留网页全屏等播放器状态。
    */
   const setupHls = (video: HTMLVideoElement, mediaUrl: string, allowProxyFallback: boolean) => {
+    // 上一次 setupHls 挂在 video 上的「等时长就绪」监听必须摘掉：
+    // 代理回退会重建 hls，旧监听若留着会和新的一起抢着重置进度
+    restoreCleanupRef.current?.();
+    restoreCleanupRef.current = null;
     hlsRef.current?.destroy();
     currentMediaUrlRef.current = mediaUrl;
     const hls = new Hls(buildHlsConfig());
     hlsRef.current = hls;
 
+    /**
+     * 进度恢复 + 起播 + 首次预取。
+     *
+     * 关键在于「什么时候算可以恢复」：MANIFEST_PARSED 只说明 m3u8 解析完了，
+     * 很多 HLS 源此时 duration 仍是 0（尤其代理回退后重建的那一次），
+     * 拿不到时长就没法判断「保存的进度是不是已经接近片尾」，
+     * 旧实现会当场把 restoredRef 置位并放弃——刷新页面后进度静默丢失。
+     * 所以时长无效时不消费这次机会，挂到 loadedmetadata/durationchange/canplay 上重试。
+     */
+    let restoreInFlight = false;
+    const restoreAndStart = async () => {
+      if (restoredRef.current || restoreInFlight) return;
+
+      const duration = artRef.current?.duration || video.duration || 0;
+      if (!Number.isFinite(duration) || duration <= 0) return;
+
+      restoreInFlight = true;
+      try {
+        const saved = (await propsRef.current.getRestorePosition?.()) ?? 0;
+        const currentDuration = artRef.current?.duration || video.duration || duration;
+        // 预取锚点：恢复进度时直接取恢复目标。赋值后 video.currentTime 未必立刻反映
+        // （Safari 系），而 ensure 是以「锚点未变」为前提复用 parsing 中的运行的——
+        // 这里读到旧值会把窗口建在片头，且白等一次纠错重建。
+        let prefetchAnchor = video.currentTime;
+        if (saved > 10 && Number.isFinite(currentDuration) && saved < currentDuration - 2) {
+          if (artRef.current) artRef.current.currentTime = saved;
+          prefetchAnchor = saved;
+          showHint(`已从 ${formatTime(saved)} 继续播放`);
+        }
+        restoredRef.current = true;
+        restoreCleanupRef.current?.();
+        restoreCleanupRef.current = null;
+        // 新集立即预取（否则要等 timeupdate 的 30s 节流，起播初期无缓存）
+        ensurePrefetch(mediaUrl, prefetchAnchor);
+        video.play().catch(() => {});
+      } catch {
+        // IndexedDB 读取失败不阻塞播放：restoredRef 不置位，后续事件还能再试
+      } finally {
+        restoreInFlight = false;
+      }
+    };
+
+    const restoreEvents = ['loadedmetadata', 'durationchange', 'canplay'] as const;
+    const onRestoreEvent = () => { void restoreAndStart(); };
+    restoreEvents.forEach((event) => video.addEventListener(event, onRestoreEvent));
+    restoreCleanupRef.current = () => {
+      restoreEvents.forEach((event) => video.removeEventListener(event, onRestoreEvent));
+    };
+
     hls.loadSource(mediaUrl);
     hls.attachMedia(video);
 
-    hls.on(Hls.Events.MANIFEST_PARSED, async () => {
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
       recoveryRef.current?.markHealthy();
-      // 预取锚点：恢复进度时直接取恢复目标。赋值后 video.currentTime 未必立刻反映
-      // （Safari 系），而 ensure 是以「锚点未变」为前提复用 parsing 中的运行的——
-      // 这里读到旧值会把窗口建在片头，且白等一次纠错重建。
-      let prefetchAnchor = video.currentTime;
-      // 进度恢复（每集一次）：优先 URL position，其次 IndexedDB 记录
-      if (!restoredRef.current) {
-        restoredRef.current = true;
-        try {
-          const saved = (await propsRef.current.getRestorePosition?.()) ?? 0;
-          const duration = artRef.current?.duration || 0;
-          if (saved > 10 && duration > 0 && saved < duration - 2) {
-            if (artRef.current) artRef.current.currentTime = saved;
-            prefetchAnchor = saved;
-            showHint(`已从 ${formatTime(saved)} 继续播放`);
-          }
-        } catch { /* 忽略恢复失败 */ }
-      }
-      // 新集立即预取（否则要等 timeupdate 的 30s 节流，起播初期无缓存）
-      ensurePrefetch(mediaUrl, prefetchAnchor);
-      video.play().catch(() => {});
+      void restoreAndStart();
     });
     // 播放链路恢复（FRAG_LOADED / MANIFEST_PARSED）：静默窗外清零连续失败计数
     hls.on(Hls.Events.FRAG_LOADED, () => recoveryRef.current?.markHealthy());
@@ -714,6 +751,8 @@ export function PlayerShell({
       document.removeEventListener('visibilitychange', saveOnHide);
       document.removeEventListener('fullscreenchange', syncFullscreenState);
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+      restoreCleanupRef.current?.();
+      restoreCleanupRef.current = null;
       el?.removeEventListener('touchstart', onTouchStart);
       el?.removeEventListener('touchend', onTouchEnd);
       el?.removeEventListener('touchcancel', onTouchEnd);

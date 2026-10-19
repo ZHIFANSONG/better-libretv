@@ -76,9 +76,28 @@ export async function clearDownloadChunks(taskId: string): Promise<void> {
   } catch { /* 忽略 */ }
 }
 
+/**
+ * 分片取回失败。retryable=false 表示确定性失败——源站根本没有这个分片（404/410）。
+ * 这类缺失在采集站很常见：m3u8 完整列出了整集，但服务器上的分片是转码/上传
+ * 不完整的产物。对它重试只会白等（3 次退避共 6 秒），而且最终必然失败——
+ * 播放侧 hls.js 会直接跳过这类分片，所以表现为「能播、下不了」。
+ */
+class SegmentFetchError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean
+  ) {
+    super(message);
+  }
+}
+
 async function fetchSegment(url: string, signal: AbortSignal): Promise<ArrayBuffer> {
   const res = await fetch(url, { signal: AbortSignal.any([AbortSignal.timeout(SEGMENT_TIMEOUT_MS), signal]), headers: { Accept: '*/*' } });
-  if (!res.ok) throw new Error(`分片 HTTP ${res.status}`);
+  if (!res.ok) {
+    // 5xx / 408 / 429 多为源站抖动或限流，值得退避重试；其余 4xx 视为确定性缺失
+    const retryable = res.status >= 500 || res.status === 408 || res.status === 429;
+    throw new SegmentFetchError(`HTTP ${res.status}`, retryable);
+  }
   return res.arrayBuffer();
 }
 
@@ -135,6 +154,12 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
   const { taskId, url, format, signal, pause, onProgress, target } = opts;
   const concurrency = Math.min(Math.max(opts.concurrency ?? 8, 1), 16);
 
+  // 内部硬停控制器：任一 worker 判失败就掐掉其余 worker。否则 Promise.all 已经
+  // reject、任务早已标记失败，后台 worker 还在继续请求分片耗流量。与外部 signal
+  // 组合后，用户取消（外部 abort）的语义保持不变。
+  const hardStop = new AbortController();
+  const jobSignal = AbortSignal.any([signal, hardStop.signal]);
+
   const report = (current: number, total: number, status: DownloadProgress['status'], message?: string) => {
     onProgress({
       current,
@@ -168,7 +193,7 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
   // —— AES key 预取 ——
   let aesKey: ArrayBuffer | undefined;
   if (parsed.aesConf) {
-    const res = await fetch(parsed.aesConf.uri, { signal });
+    const res = await fetch(parsed.aesConf.uri, { signal: jobSignal });
     if (!res.ok) throw new Error(`解密密钥加载失败：HTTP ${res.status}`);
     aesKey = await res.arrayBuffer();
   }
@@ -186,10 +211,10 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
 
   const worker = async (): Promise<void> => {
     while (cursor < total) {
-      if (signal.aborted) return;
+      if (jobSignal.aborted) return;
       await pause.waitIfPaused();
       const index = ++cursor; // 1 基
-      if (signal.aborted) return;
+      if (jobSignal.aborted) return;
       await pause.waitIfPaused();
       const cached = await cache.match(new Request(chunkKey(index)));
       if (cached) {
@@ -199,28 +224,46 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
       const seg = parsed.segments[index - 1];
       let buffer: ArrayBuffer | undefined;
       for (let retry = 0; retry < MAX_SEGMENT_RETRIES; retry++) {
-        if (signal.aborted) return;
+        if (jobSignal.aborted) return;
         try {
-          buffer = await fetchSegment(seg.url, signal);
+          buffer = await fetchSegment(seg.url, jobSignal);
           break;
-        } catch {
-          if (signal.aborted) return;
+        } catch (err) {
+          if (jobSignal.aborted) return;
+          // 源站没有这片（404/410 等 4xx）：重试再多次也是同样结果。立刻整集失败
+          // 并把原因说清楚——用户需要的是「换源」，不是白等 6 秒后一句笼统的失败
+          if (err instanceof SegmentFetchError && !err.retryable) {
+            throw new Error(`分片 ${index} 源站缺失（${err.message}），该来源无法完整下载，建议更换来源`);
+          }
           await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
         }
       }
       if (!buffer) {
         throw new Error(`分片 ${index} 下载失败（已重试 ${MAX_SEGMENT_RETRIES} 次）`);
       }
-      await cache.put(
-        new Request(chunkKey(index)),
-        new Response(buffer.slice(0), { headers: { 'Content-Type': 'video/mp2t' } })
-      );
+      try {
+        await cache.put(
+          new Request(chunkKey(index)),
+          new Response(buffer.slice(0), { headers: { 'Content-Type': 'video/mp2t' } })
+        );
+      } catch (err) {
+        // 配额不足等存储层错误：浏览器原文（QuotaExceededError）用户看不懂
+        throw new Error(
+          `分片缓存写入失败（浏览器存储空间可能不足）：${err instanceof Error ? err.message : String(err)}`
+        );
+      }
       current += 1;
       report(current, total, 'downloading');
     }
   };
-  await Promise.all(Array.from({ length: concurrency }, worker));
-  if (signal.aborted) return;
+  try {
+    await Promise.all(Array.from({ length: concurrency }, worker));
+  } catch (err) {
+    // 先把在途的其它 worker 掐掉再向上抛：任务已判失败，不该继续耗流量
+    hardStop.abort();
+    throw err;
+  }
+  if (jobSignal.aborted) return;
 
   // —— 顺序写出（转封装 / 拼接） ——
   report(total, total, 'processing');
@@ -229,7 +272,7 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
     // → 播放器显示 13:15:21），必须在写出 initSegment 前回填真实值
     const transmuxer = new StreamingTransmuxer(target, { durationSeconds: parsed.totalDuration });
     for (let i = 1; i <= total; i++) {
-      if (signal.aborted) return;
+      if (jobSignal.aborted) return;
       await pause.waitIfPaused();
       const resp = await cache.match(new Request(chunkKey(i)));
       if (!resp) throw new Error(`分片 ${i} 缓存丢失，请重试`);
@@ -242,7 +285,7 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
     await transmuxer.finish();
   } else {
     for (let i = 1; i <= total; i++) {
-      if (signal.aborted) return;
+      if (jobSignal.aborted) return;
       await pause.waitIfPaused();
       const resp = await cache.match(new Request(chunkKey(i)));
       if (!resp) throw new Error(`分片 ${i} 缓存丢失，请重试`);
