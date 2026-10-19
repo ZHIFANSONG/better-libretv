@@ -6,6 +6,10 @@ import type { SourceConfig } from '@/lib/types';
 import { buildWatchUrl, cn } from '@/lib/utils';
 import { useAppStore, resolveSource } from '@/lib/store';
 import { collectSourceCandidates, latencyText, sortCandidates, type SourceCandidate } from '@/lib/source-switch';
+import { qualityKey } from '@/lib/quality';
+import type { QualityEntry } from '@/lib/types';
+import { api } from '@/lib/client-api';
+import { QualityBadge } from './quality-badge';
 import { useToast } from './toast';
 import { Icon } from './icon';
 import { SmartImage } from './smart-image';
@@ -132,6 +136,59 @@ export function SwitchSourceModal({
   );
   const ready = sorted.filter((c) => c.ms !== undefined || c.ok === false);
 
+  /*
+   * 画质：搜索结果卡片和播放页换源卡都有徽章，唯独这个「查看更多来源」弹窗没有 ——
+   * 而它恰恰是用户「决定换到哪个源」的地方，只给延迟等于让人在两个 720P 里挑快的那个。
+   * 候选稳定后整批探一次，结果写全局缓存，其它面板共用。
+   */
+  const [probingQuality, setProbingQuality] = useState(false);
+  const qualityAbortRef = useRef<AbortController | null>(null);
+  const qualitySignature = useMemo(
+    () => sorted.map((c) => qualityKey(c.source.key, c.result.vodId)).sort().join(','),
+    [sorted]
+  );
+
+  useEffect(() => {
+    // 搜索仍在流式出结果时不要开探：每多一个候选就整批重启一次，白打源站
+    if (!qualitySignature || phase === 'searching') return;
+    const known = useAppStore.getState().qualityMap;
+    const targets = sorted
+      .filter((c) => !known[qualityKey(c.source.key, c.result.vodId)])
+      .map((c) => ({ source: c.source, id: c.result.vodId }));
+    if (targets.length === 0) return;
+
+    const controller = new AbortController();
+    qualityAbortRef.current?.abort();
+    qualityAbortRef.current = controller;
+    setProbingQuality(true);
+    const collected: Record<string, QualityEntry> = {};
+    api
+      .qualityProbeStream(
+        targets,
+        (result) => {
+          collected[qualityKey(result.sourceKey, result.vodId)] = {
+            height: result.height,
+            from: 'probe',
+            error: result.error,
+            timestamp: Date.now(),
+          };
+        },
+        controller.signal
+      )
+      .catch(() => {
+        /* 探测失败不阻塞换源，徽章不显示即可 */
+      })
+      .finally(() => {
+        if (Object.keys(collected).length > 0) useAppStore.getState().setQuality(collected);
+        setProbingQuality(false);
+      });
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qualitySignature, phase]);
+
+  // 卸载时掐掉在途探测
+  useEffect(() => () => qualityAbortRef.current?.abort(), []);
+
   const switchTo = (c: SourceCandidate) => {
     if (c.episodes === 0) {
       toast('该源无可用播放资源', 'warning');
@@ -251,8 +308,14 @@ export function SwitchSourceModal({
                     <div className="text-xs font-medium text-content truncate" title={c.source.name}>
                       {c.source.name}
                     </div>
-                    <div className="text-xs text-faint mt-0.5">
-                      {c.episodes === undefined ? '测速中…' : c.episodes > 0 ? `${c.episodes} 集` : '无资源'}
+                    <div className="text-xs text-faint mt-0.5 flex items-center justify-between gap-1">
+                      <span className="truncate">
+                        {c.episodes === undefined ? '测速中…' : c.episodes > 0 ? `${c.episodes} 集` : '无资源'}
+                      </span>
+                      <QualityBadge
+                        entry={store.qualityMap?.[qualityKey(c.source.key, c.result.vodId)]}
+                        loading={probingQuality && !store.qualityMap?.[qualityKey(c.source.key, c.result.vodId)]}
+                      />
                     </div>
                   </div>
                 </button>
