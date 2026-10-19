@@ -9,6 +9,7 @@ import {
   PauseResumeController,
   clearDownloadChunks,
   runDownloadJob,
+  supportsChunkCache,
   type DownloadProgress,
 } from '@/lib/m3u8-downloader';
 import { detectSavingCapability, pickSaveTarget } from '@/lib/download-saver';
@@ -45,6 +46,7 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
   const { toast } = useToast();
   const [tasks, setTasks] = useState<DownloadTaskEntry[]>([]);
   const [capability, setCapability] = useState<'fs-access' | 'memory'>('memory');
+  const [chunkCache, setChunkCache] = useState(true);
   const running = useRef(new Map<string, RunningHandle>());
 
   const refresh = useCallback(() => {
@@ -147,6 +149,12 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
     const onAdd = (e: Event) => {
       const detail = (e as CustomEvent<AddDownloadPayload>).detail;
       if (!detail?.url || !detail?.title) return;
+      // 无 Cache Storage（HTTP 访问 / 老浏览器）时下载必然失败——分片无处暂存。
+      // 在入队这一步就讲清楚，别让用户等到任务跑到一半才看到报错
+      if (!supportsChunkCache()) {
+        toast('当前环境不支持下载缓存（需通过 HTTPS 访问），无法下载', 'error');
+        return;
+      }
       void (async () => {
         const format = detail.format ?? 'MP4';
         const id = `dl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -192,6 +200,7 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
   useEffect(() => {
     if (!isOpen) return;
     setCapability(detectSavingCapability());
+    setChunkCache(supportsChunkCache());
     refresh();
     scheduleNext();
   }, [isOpen, refresh, scheduleNext]);
@@ -249,7 +258,8 @@ export function DownloadManager({ isOpen, onClose }: { isOpen: boolean; onClose:
     <Drawer open={isOpen} onClose={onClose} title="下载管理" width="max-w-lg">
       <div className="space-y-3">
         <p className="text-xs text-faint">
-          保存能力：{capability === 'fs-access' ? '磁盘直写（边下边存）' : '内存聚合（完成后浏览器下载）'} ·
+          保存能力：{capability === 'fs-access' ? '磁盘直写（边下边存）' : '内存聚合（完成后浏览器下载）'}
+          {chunkCache ? ' · 支持断点续传' : ' · 当前环境无断点缓存（需 HTTPS 访问）'} ·
           同时进行 {Math.min(running.current.size, MAX_CONCURRENT_DOWNLOADS)}/{MAX_CONCURRENT_DOWNLOADS} 个任务
         </p>
         {tasks.length === 0 && (

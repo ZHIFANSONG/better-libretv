@@ -66,6 +66,15 @@ function dlChunkKey(taskId: string, index: number): string {
   return `${DL_CHUNK_ORIGIN}/${encodeURIComponent(taskId)}/${index}`;
 }
 
+/**
+ * 是否具备断点缓存能力。Cache Storage 只在安全上下文（HTTPS / localhost）存在，
+ * HTTP 部署、部分 WebView 与旧浏览器都没有它。下载链路依赖它暂存分片，
+ * 缺了只能提前告知，而不是等 caches.open 抛出裸的 ReferenceError。
+ */
+export function supportsChunkCache(): boolean {
+  return typeof caches !== 'undefined';
+}
+
 export async function clearDownloadChunks(taskId: string): Promise<void> {
   try {
     if (typeof caches === 'undefined') return;
@@ -146,6 +155,28 @@ export interface DownloadJobOptions {
 }
 
 /**
+ * 把解析阶段的失败翻译成可操作的原因。浏览器直连被 CORS / 混合内容 / DNS 拦下时，
+ * fetch 只会给出 `TypeError: Failed to fetch`——对用户没有任何信息量。而下载链路
+ * 没有播放器那样的代理回退（player-shell 遇直连致命错误会改走 /api/proxy），
+ * 所以「能播不能下」多半卡在这里，必须把下一步该做什么讲清楚。
+ */
+function describeParseFailure(url: string, err: unknown): string {
+  const reason = err instanceof Error ? err.message : '未知错误';
+  const base = `播放列表解析失败：${reason}`;
+  if (!/failed to fetch|networkerror|load failed/i.test(reason)) return base;
+  if (isMixedContentBlocked(url)) {
+    return `${base}——该来源是 HTTP 地址，HTTPS 页面无法直连下载（混合内容被拦截），建议更换来源`;
+  }
+  return `${base}——无法直连该来源（跨域限制或域名不可达），建议更换来源`;
+}
+
+/** 页面是 HTTPS 而目标是 http:// 时，浏览器按混合内容策略直接拦截 */
+function isMixedContentBlocked(target: string): boolean {
+  if (typeof location === 'undefined' || location.protocol !== 'https:') return false;
+  return /^http:\/\//i.test(target);
+}
+
+/**
  * 执行一次整集下载。调用方（DownloadManager）负责：
  * 在用户手势内 pickSaveTarget、构造 AbortSignal/PauseResumeController、
  * 更新 Dexie 任务状态；本函数只负责解析 → 并发下载 → 顺序写出。
@@ -183,7 +214,7 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
     }
   }
   if (lastErr || !parsed!) {
-    throw new Error(`播放列表解析失败：${lastErr instanceof Error ? lastErr.message : '未知错误'}`);
+    throw new Error(describeParseFailure(url, lastErr));
   }
   if (parsed.byterange) throw new Error('该集使用 BYTERANGE 分片，暂不支持下载');
 
@@ -199,6 +230,9 @@ export async function runDownloadJob(opts: DownloadJobOptions): Promise<void> {
   }
 
   // —— 并发下载分片（Cache Storage 断点） ——
+  if (!supportsChunkCache()) {
+    throw new Error('当前环境不支持浏览器缓存（需通过 HTTPS 访问或更换支持 Cache Storage 的浏览器），无法下载');
+  }
   const cache = await caches.open(DL_CACHE_NAME);
   const chunkKey = (index: number) => dlChunkKey(taskId, index);
   let cursor = 0;

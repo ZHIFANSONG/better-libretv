@@ -201,4 +201,48 @@ describe('runDownloadJob · 源站缺片与存储错误', () => {
 
     await expect(runDownloadJob(jobOptions())).rejects.toThrow(/存储空间可能不足/);
   });
+
+  it('环境无 Cache Storage（HTTP 访问 / 老浏览器）时给出可读提示', async () => {
+    // 不提供 caches：等价于非安全上下文。旧实现会抛裸的 ReferenceError: caches is not defined
+    vi.stubGlobal('caches', undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('index.m3u8')) return new Response(PLAYLIST, { status: 200 });
+        return new Response(new Uint8Array([0x47]), { status: 200 });
+      })
+    );
+
+    await expect(runDownloadJob(jobOptions())).rejects.toThrow(/不支持浏览器缓存/);
+  });
+
+  it('跨域或域名不可达导致的 Failed to fetch 翻译成「建议更换来源」', async () => {
+    stubCaches();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      })
+    );
+
+    await expect(runDownloadJob(jobOptions())).rejects.toThrow(
+      /无法直连该来源（跨域限制或域名不可达），建议更换来源/
+    );
+  });
+
+  it('HTTPS 页面遇到 http 来源时提示混合内容被拦截', async () => {
+    stubCaches();
+    vi.stubGlobal('location', { protocol: 'https:' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      })
+    );
+
+    await expect(runDownloadJob(jobOptions({ url: 'http://cdn.example.com/index.m3u8' }))).rejects.toThrow(
+      /混合内容被拦截/
+    );
+  });
 });
