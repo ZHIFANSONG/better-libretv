@@ -433,16 +433,17 @@ export function PlayerShell({
     const $player = art.template?.$player as HTMLElement | undefined;
     if (!$player) return;
 
-    // level.height 在单码率源上常为 0（清单里没写 RESOLUTION），此时按 level 下标降级显示
+    // 单码率源的清单里没写 RESOLUTION，level.width / level.height 都是 0，
+    // 此时按 level 下标降级显示，而不是编一个「0P」出来
     const levels = hls.levels ?? [];
-    const options = levels.map((level, index) => ({
-      index,
-      label:
-        typeof level.height === 'number' && level.height > 0
-          ? qualityLabel(level.height, level.width) || `${level.height}P`
-          : `档位 ${index + 1}`,
-      bitrate: level.bitrate,
-    }));
+    const options = levels.map((level, index) => {
+      const label = qualityLabel(level.height, level.width);
+      return {
+        index,
+        label: label || `档位 ${index + 1}`,
+        bitrate: level.bitrate,
+      };
+    });
 
     // 清单还没解析出档位时（hls 刚创建）不留空胶囊，等 MANIFEST_PARSED 再来
     if (options.length === 0) {
@@ -457,7 +458,8 @@ export function PlayerShell({
     // manualLevel === -1 才是「自动」；currentLevel 只是当前在播档位，两者不能混用
     const manual = hls.manualLevel;
     const currentLevel = hls.currentLevel;
-    // 解码后的真实分辨率：单码率源的清单里没有档位，这是唯一可信的画质来源
+    // 解码后的真实分辨率：单码率源的清单里没有档位，这是唯一可信的画质来源。
+    // 判档以宽度为准（1920×752 是 1080P 而不是 720P），所以 width 一定要带上。
     const playing = art.video?.videoHeight ?? 0;
     const playingWidth = art.video?.videoWidth ?? 0;
     const playingLabel = qualityLabel(playing, playingWidth) || (playing > 0 ? `${playing}P` : '');
@@ -648,7 +650,8 @@ export function PlayerShell({
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       recoveryRef.current?.markHealthy();
       // master playlist 的档位高度：多码率源在这里就能拿到上限。
-      // 上报时带上最高档的宽度——裁切过的宽银幕 4K（3840×1608）只靠高度会被判成 2K
+      // 「挑最高档」仍按高度比较：BANDWIDTH 反推的档位没有 width（0），
+      // 混进宽度比较会把它当成最矮的一档。判档由 qualityLabel 按宽度做，两者分工不同。
       const rated = hls.levels.filter((level) => typeof level.height === 'number' && level.height > 0);
       if (rated.length > 0) {
         const top = rated.reduce((a, b) => (b.height > a.height ? b : a));
@@ -680,10 +683,11 @@ export function PlayerShell({
       speedSamplesRef.current = pushSpeedSample(speedSamplesRef.current, fragmentSpeedSample(timing));
     });
     // 单码率源在 MANIFEST 阶段拿不到 height（清单尚未解析），这里补一次。
-    // 注意 data.level 是档位下标，分辨率在 levelInfo 上
+    // 注意 data.level 是档位下标，分辨率在 levelInfo 上。
+    // width 必须一起上报：判档以宽度为准，只给 height 会让 1920×752 落回 720P。
     hls.on(Hls.Events.LEVEL_LOADED, (_evt, data) => {
-      const height = data.levelInfo?.height;
-      if (typeof height === 'number') reportQuality(height, data.levelInfo?.width);
+      const { height, width } = data.levelInfo ?? {};
+      if (typeof height === 'number') reportQuality(height, typeof width === 'number' && width > 0 ? width : undefined);
     });
     /*
      * ABR 自动切档本身不经过我们的菜单：不放这条监听，按钮上会一直显示起播那一档，

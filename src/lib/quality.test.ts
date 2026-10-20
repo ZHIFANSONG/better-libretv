@@ -21,55 +21,78 @@ const MASTER = `#EXTM3U
 `;
 
 describe('qualityLabel', () => {
-  it('按常见档位命名', () => {
-    expect(qualityLabel(2160)).toBe('4K');
-    expect(qualityLabel(1440)).toBe('2K');
-    expect(qualityLabel(1080)).toBe('1080P');
-    expect(qualityLabel(720)).toBe('720P');
-    expect(qualityLabel(540)).toBe('540P');
-    expect(qualityLabel(480)).toBe('480P');
-    expect(qualityLabel(360)).toBe('360P');
+  it('按常见档位命名（16:9 标准分辨率）', () => {
+    expect(qualityLabel(2160, 3840)).toBe('4K');
+    expect(qualityLabel(1440, 2560)).toBe('2K');
+    expect(qualityLabel(1080, 1920)).toBe('1080P');
+    expect(qualityLabel(720, 1280)).toBe('720P');
+    expect(qualityLabel(540, 960)).toBe('540P');
+    expect(qualityLabel(480, 854)).toBe('480P');
+    expect(qualityLabel(360, 640)).toBe('360P');
   });
 
-  it('轻微裁切仍归原档：1080P 裁掉上下边还是 1080P', () => {
-    expect(qualityLabel(1040)).toBe('1080P'); // 1924×1040
-    expect(qualityLabel(1030)).toBe('1080P');
-    expect(qualityLabel(1110)).toBe('1080P');
+  it('判档以宽度为准：1920×752 是 1080P，不是 720P', () => {
+    // 上报的真实故障：源站把 1080P 母带上下裁成 1920×752，
+    // 按高度就近取档 752 距 720 只有 4.4%，于是被标成 720P
+    expect(qualityLabel(752, 1920)).toBe('1080P');
+    expect(qualityLabel(800, 1920)).toBe('1080P');
+    expect(qualityLabel(816, 1920)).toBe('1080P');
+    // 宽银幕电影常被裁成 2.39:1：1920×804 同样必须是 1080P
+    expect(qualityLabel(804, 1920)).toBe('1080P');
+    // 720P 母带裁上下边后宽度仍是 1280
+    expect(qualityLabel(536, 1280)).toBe('720P');
+    expect(qualityLabel(544, 1280)).toBe('720P');
   });
 
-  it('1920×960 这类 2.0:1 裁切仍算 1080P（960 不是独立档位）', () => {
-    expect(qualityLabel(960)).toBe('1080P');
-    expect(qualityLabel(920)).toBe('1080P');
-    expect(qualityLabel(1000)).toBe('1080P');
-    expect(qualityLabel(700)).toBe('720P');
-    expect(qualityLabel(680)).toBe('720P');
+  it('高度不再参与判档：同样的宽度给出同样的标签', () => {
+    // 这四条都是 1920 宽，无论上下裁掉多少都算 1080P
+    for (const h of [1080, 960, 816, 752]) {
+      expect(qualityLabel(h, 1920)).toBe('1080P');
+    }
+    // 有宽度时高度完全不影响结果（哪怕高度写着 2160）
+    expect(qualityLabel(2160, 1920)).toBe('1080P');
   });
 
   it('偏差过大时不抬档：低分辨率不会被算成 360P', () => {
-    expect(qualityLabel(144)).toBe('144P');
-    expect(qualityLabel(240)).toBe('240P');
-    expect(qualityLabel(800)).toBe('720P');
+    // 144 宽距 640（360P）77%，超容差 → 原样展示
+    expect(qualityLabel(144, 144)).toBe('144P');
+    // 426 宽距 640（360P）33%、距 854（480P）50%，都超容差。
+    // 注意这里输出的是宽度 426 而不是高度 240：有宽度时一律按宽度命名，
+    // 240 只是这个 426×240 片源的短边，拿它命名会与宽度口径不一致。
+    expect(qualityLabel(240, 426)).toBe('426P');
+    // 800 宽距 854（480P）6.3%，在容差内 → 取 480P
+    expect(qualityLabel(450, 800)).toBe('480P');
+    // 500 宽距 640（360P）22%、距 854（480P）41%，都超容差 → 原样展示
+    expect(qualityLabel(300, 500)).toBe('500P');
   });
 
-  it('缺失或非法高度返回 undefined（前端据此显示「未知」）', () => {
+  it('缺失或非法分辨率返回 undefined（前端据此显示「未知」）', () => {
     expect(qualityLabel(undefined)).toBeUndefined();
     expect(qualityLabel(0)).toBeUndefined();
+    expect(qualityLabel(undefined, undefined)).toBeUndefined();
+    expect(qualityLabel(0, 0)).toBeUndefined();
   });
 
-  it('裁切过的宽银幕 4K 靠宽度判成 4K（3840×1608 只按高度会落到 2K）', () => {
-    // 真 4K 原盘 3840×2160 被裁成宽银幕：高度掉到 1600 附近，永远不会靠近 2160
-    expect(qualityLabel(1608, 3840)).toBe('4K');
-    expect(qualityLabel(2024, 3840)).toBe('4K');
-    // 反例：2K 宽没法冒充 4K
-    expect(qualityLabel(1608, 1920)).not.toBe('4K');
-    expect(qualityLabel(1080, 2560)).not.toBe('4K');
-    // 3840×1080 这类双屏/畸变片源：宽度够但高度太低，不能抬成 4K
-    expect(qualityLabel(1080, 3840)).not.toBe('4K');
+  it('只有宽度、没有高度时也能判档（探到 RESOLUTION 但没解码高度）', () => {
+    expect(qualityLabel(undefined, 1920)).toBe('1080P');
+    expect(qualityLabel(undefined, 3840)).toBe('4K');
+    expect(qualityLabel(0, 1280)).toBe('720P');
   });
 
-  it('宽度缺失时行为与旧版一致（持久化的老条目只有 height）', () => {
-    expect(qualityLabel(1608)).toBe('2K');
+  it('宽度缺失时退回高度档位表（BANDWIDTH 反推值、老缓存只有 height）', () => {
     expect(qualityLabel(1080, undefined)).toBe('1080P');
+    expect(qualityLabel(720, undefined)).toBe('720P');
+    expect(qualityLabel(2160)).toBe('4K');
+    // 高度路径沿用短边口径：1440 是 2K 而不是 1080P
+    expect(qualityLabel(1440)).toBe('2K');
+    // 没有宽度的 752 只能按高度就近似档（这种情况源站根本没给宽度）
+    expect(qualityLabel(752)).toBe('720P');
+  });
+
+  it('宽度缺失时的裁切容差照旧：1040 高度仍算 1080P', () => {
+    expect(qualityLabel(1040)).toBe('1080P');
+    expect(qualityLabel(960)).toBe('1080P');
+    expect(qualityLabel(680)).toBe('720P');
   });
 });
 
@@ -266,9 +289,34 @@ describe('mergeQualityEntries', () => {
     const lower = mergeQualityEntries(first, { [KEY]: play(1080, 1920) }, T + 2000);
     expect(qualityLabel(lower[KEY].height, lower[KEY].width)).toBe('4K');
 
-    // 换了更高的一档（如 2560×1440 的 2K 流不会更矮，这里取真 4K 的高度）时宽度跟着换，不留旧值
+    // 换档重播：胜出的一次宽度与高度必须成对保留，不能拼成「2160 高 + 1608 那次的高度」
     const higher = mergeQualityEntries(first, { [KEY]: play(2160, 3840) }, T + 3000);
     expect(higher[KEY]).toMatchObject({ height: 2160, width: 3840 });
+  });
+
+  it('实测之间比宽度而不是比高度：1920×752 不能被更窄的高高度源盖掉', () => {
+    // 真实场景：先播 1920×752（1080P，被裁过上下边）
+    const first = mergeQualityEntries({}, { [KEY]: play(752, 1920) }, T);
+    expect(qualityLabel(first[KEY].height, first[KEY].width)).toBe('1080P');
+
+    // 之后上报一条 1280×1080（源站把宽高写反/竖屏）：高度更高，但宽度只有 1280
+    const second = mergeQualityEntries(first, { [KEY]: play(1080, 1280) }, T + 1000);
+    expect(second[KEY].width).toBe(1920);
+    expect(qualityLabel(second[KEY].height, second[KEY].width)).toBe('1080P');
+
+    // 反过来：先窄后宽，宽度更宽的一次必须胜出
+    const narrowFirst = mergeQualityEntries({}, { [KEY]: play(1080, 1280) }, T);
+    const wider = mergeQualityEntries(narrowFirst, { [KEY]: play(752, 1920) }, T + 1000);
+    expect(wider[KEY].width).toBe(1920);
+    expect(qualityLabel(wider[KEY].height, wider[KEY].width)).toBe('1080P');
+  });
+
+  it('宽度都缺失时退回比高度（BANDWIDTH 反推 / 老缓存）', () => {
+    const current = { [KEY]: play(720) };
+    const next = mergeQualityEntries(current, { [KEY]: play(1080) }, T + 1000);
+    expect(next[KEY].height).toBe(1080);
+    const back = mergeQualityEntries(next, { [KEY]: play(540) }, T + 2000);
+    expect(back[KEY].height).toBe(1080);
   });
 
   it('已有明确档位时，不被「测不出」的探测抹掉', () => {

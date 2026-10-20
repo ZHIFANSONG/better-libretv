@@ -75,8 +75,8 @@ export interface QualityEntry {
   height?: number;
   /**
    * 视频宽度（像素），可选。
-   * 只靠高度判档会把裁切过的宽银幕 4K（3840×1608）标成「2K」，
-   * 因此宽度与高度一起存、一起展示（见 quality.ts 的 WIDE_4K_MIN_WIDTH）。
+   * 判档以宽度为准：采集站常把 1920×1080 母带上下裁成 1920×752，
+   * 只靠高度会把它标成「720P」。宽度缺失时才退回高度档位表。
    */
   width?: number;
   from: 'play' | 'probe';

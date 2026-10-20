@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
  * 四态：探测中 → 「…」；源站没写画质信息 → 「未知」；探测本身失败 → 「未探到」；
  * 尚未探测 → 不渲染。
  *
- * 后两种在数值上完全一样（都没有 height），但成因完全不同：前者是源站是单码率流、
+ * 后两种在数值上完全一样（都没有分辨率），但成因完全不同：前者是源站是单码率流、
  * 服务端无论如何测不出；后者是请求被拒/超时。文案与 tooltip 分开，否则用户无法判断
  * 是该等一等重试，还是只能播一次才知道。
  *
@@ -49,8 +49,11 @@ export function QualityBadge({
       </i>
     );
   }
-  // 宽度兜底：3840×1608 的宽银幕 4K 高度只有 1608，按高度判档会把它踢回标清配色
-  const hd = (entry.height ?? 0) >= 1080 || (entry.width ?? 0) >= 1920;
+  // 配色与判档同口径，以宽度为准：1920×752 这类裁切过的高清源宽度仍是 1920，
+  // 按高度（752）会把它误踢进标清配色。宽度缺失时才退回高度判断。
+  const width = entry.width ?? 0;
+  const height = entry.height ?? 0;
+  const hd = width > 0 ? width >= 1920 : height >= 1080;
   return (
     <i
       className={cn('g-qb', hd ? 'g-qb-hd' : 'g-qb-sd', className)}
