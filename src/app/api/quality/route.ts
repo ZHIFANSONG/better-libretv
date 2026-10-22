@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { guardRequest } from '@/lib/api-guard';
 import { getCache, setCache } from '@/lib/fetch-utils';
 import { probeQuality } from '@/lib/quality-probe';
+import { getInflight, setInflight, type CachedProbe } from '@/lib/quality-inflight';
 import type { QualityProbeItem, QualityProbeResult } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -22,12 +23,7 @@ const OK_CACHE_TTL = 30 * 60 * 1000;
 /** 失败结果短缓存：避免每个用户每次展开都去白打一遍已经挂掉的源 */
 const FAIL_CACHE_TTL = 2 * 60 * 1000;
 
-interface CachedProbe {
-  height?: number;
-  /** 宽度与高度一起缓存：宽银幕 4K（3840×1608）只靠高度会被标成 2K */
-  width?: number;
-  error?: string;
-}
+
 
 function isProbeItem(v: unknown): v is QualityProbeItem {
   if (!v || typeof v !== 'object') return false;
@@ -89,8 +85,6 @@ export async function POST(req: Request) {
   // 并发的重复条目会同时 miss、各打一遍源站，缓存本身挡不住。
   // 结果仍按条目各自的 sourceKey 返回——直接按 cacheKey 去重会吞掉另一个源的结论，
   // 那个源在前端就永远拿不到结果、徽章不亮
-  const inflight = new Map<string, Promise<CachedProbe>>();
-
   const resolveItem = async (item: QualityProbeItem): Promise<QualityProbeResult> => {
     const key = cacheKey(item);
     const cached = getCache<CachedProbe>(key);
@@ -103,7 +97,7 @@ export async function POST(req: Request) {
         error: cached.error,
       };
     }
-    let pending = inflight.get(key);
+    let pending = getInflight(key);
     if (!pending) {
       pending = (async () => {
         try {
@@ -118,7 +112,8 @@ export async function POST(req: Request) {
           return { error: '探测已取消' };
         }
       })();
-      inflight.set(key, pending);
+      // setInflight 会在 settle（含中断）后自动移除，见 lib/quality-inflight.ts
+      setInflight(key, pending);
     }
     const value = await pending;
     return {

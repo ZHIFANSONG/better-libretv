@@ -1,0 +1,33 @@
+name: ci
+
+# 日常提交的质量闸门：push 到主分支或开 PR 时跑类型检查、单测、lint。
+# 与 docker-publish.yml 的 verify 任务互补——那个只在打 tag 时跑，
+# 意味着日常提交即使类型检查失败也不会有人发现，直到发版那一刻才炸。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - name: 类型检查
+        run: npm run typecheck
+      - name: 单元测试
+        run: npm test
+      - name: Lint
+        run: npm run lint

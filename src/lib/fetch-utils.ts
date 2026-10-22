@@ -127,14 +127,39 @@ export function getCache<T>(key: string): T | undefined {
   return entry.value as T;
 }
 
+const MAX_CACHE_ENTRIES = 500;
+
 export function setCache(key: string, value: unknown, ttlMs: number): void {
-  if (cache.size > 500) {
-    // 简单防膨胀：超限时清掉最早过期的条目
-    const now = Date.now();
+  const now = Date.now();
+  if (cache.size >= MAX_CACHE_ENTRIES) {
+    // 先清过期；仍然超限时逐出「最早过期」的那一条，而不是整表 clear()。
+    // clear() 会连带清掉豆瓣推荐等仍有效的热点条目 —— 一次突发写入就把所有用户
+    // 的缓存打空、下一波请求全部回源，正是要避免的情形。
     for (const [k, v] of cache) {
       if (now > v.expiresAt) cache.delete(k);
     }
-    if (cache.size > 500) cache.clear();
+    while (cache.size >= MAX_CACHE_ENTRIES) {
+      let oldestKey: string | undefined;
+      let oldestExpiry = Infinity;
+      for (const [k, v] of cache) {
+        if (v.expiresAt < oldestExpiry) {
+          oldestExpiry = v.expiresAt;
+          oldestKey = k;
+        }
+      }
+      if (oldestKey === undefined) break;
+      cache.delete(oldestKey);
+    }
   }
-  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+  cache.set(key, { value, expiresAt: now + ttlMs });
+}
+
+/** 仅供测试：当前缓存条目数 */
+export function cacheSize(): number {
+  return cache.size;
+}
+
+/** 仅供测试与运维：清空缓存 */
+export function clearCache(): void {
+  cache.clear();
 }

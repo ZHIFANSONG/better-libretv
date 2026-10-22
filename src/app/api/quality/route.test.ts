@@ -6,6 +6,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from './route';
+import { inflightSize, clearInflight } from '@/lib/quality-inflight';
 import type { QualityProbeResult } from '@/lib/types';
 
 const state = vi.hoisted(() => ({
@@ -56,6 +57,7 @@ beforeEach(() => {
   state.calls = 0;
   state.abort = false;
   state.cache.clear();
+  clearInflight();
 });
 
 describe('POST /api/quality', () => {
@@ -87,6 +89,19 @@ describe('POST /api/quality', () => {
     expect(state.calls).toBe(1);
     await POST(post([item('a', 'https://s.test/api')]));
     expect(state.calls).toBe(1);
+  });
+
+  it('探测结束后合并表被清空：模块级 Map 不会随条目数无限增长', async () => {
+    await POST(post([item('a', 'https://s.test/api'), item('b', 'https://s.test/api2')]));
+    // 遗留的 pending Promise 会一直被 Map 引用住，长期运行就成内存泄漏
+    expect(inflightSize()).toBe(0);
+  });
+
+  it('中断路径同样会清空合并表（finally 而非 then）', async () => {
+    state.abort = true;
+    await POST(post([item('a', 'https://s.test/api')]));
+    expect(inflightSize()).toBe(0);
+    state.abort = false;
   });
 
   it('客户端断开等中断：error 为「探测已取消」且不写缓存（下次仍会重试）', async () => {
