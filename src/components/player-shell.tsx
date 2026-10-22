@@ -6,10 +6,18 @@ import Artplayer from 'artplayer';
 import Hls, { type HlsConfig } from 'hls.js';
 
 import { useT } from './lang-sync';
+import { StatsPanel, SubtitlePanel } from './player-panels';
+import { canUseNativeFullscreen, enterNativeFullscreen, isAppleTouchDevice } from '@/lib/player-platform';
 import { PlaybackRecovery, describeHlsError } from '@/lib/playback-recovery';
 import { createHlsLoader } from '@/lib/hls-loader';
 import { formatTime } from '@/lib/utils';
-import { qualityLabel } from '@/lib/quality';
+import {
+  destroyQualityMenu,
+  refreshQualityMenu as refreshQualityMenuImpl,
+  type QualityMenuContext,
+  type QualityMenuHls,
+  type QualityMenuState,
+} from '@/lib/quality-menu';
 import { copyToClipboard } from '@/lib/clipboard';
 import { clearSegmentTimings, takeSegmentTiming } from '@/lib/segment-timing';
 import { collectSubtitleOptions, looksLikeSrt, srtToVtt, type SubtitleOption } from '@/lib/subtitle';
@@ -113,66 +121,6 @@ interface PlayerShellProps {
   posterUrl?: string;
   /** 采集源名：写进媒体会话的「艺术家」位，换源后锁屏上能看出区别 */
   sourceLabel?: string;
-}
-
-/**
- * 是否 Apple 触屏设备（iPhone / iPad / iPadOS 桌面 UA）。
- *
- * iPadOS 13+ 的 Safari 默认按桌面 UA 上报（"Macintosh"），所以除了 iPhone/iPad/iPod 的 UA，
- * 还要认「Mac 型 UA + 多点触控」。注意**不能**再并 Artplayer.utils.isSafari 兜底：
- * 那不是设备判断而是浏览器判断，桌面 Mac Safari 会被误判成 iPad，
- * 全屏按钮就被改道去调 webkitEnterFullscreen —— 那正是「点了全屏没反应」的来源。
- */
-const isAppleTouchDevice = (): boolean => {
-  if (typeof navigator === 'undefined') return false;
-  return isAppleTouchUA(navigator.userAgent, navigator.maxTouchPoints);
-};
-
-/** 抽出来便于单测/日志：UA 判定本身不依赖运行环境 */
-function isAppleTouchUA(ua: string, maxTouchPoints: number): boolean {
-  if (/iPhone|iPad|iPod/i.test(ua)) return true;
-  // iPadOS 桌面 UA：Macintosh + 多点触控（桌面 Mac 的触控板 maxTouchPoints 为 0）
-  return /\bMacintosh\b/.test(ua) && maxTouchPoints > 1;
-}
-
-/**
- * 设备是否真的提供原生（系统播放器）全屏入口。
- *
- * 只认 webkitEnterFullscreen —— 这是 iOS/iPadOS 的专属接口，真正把视频交给系统播放器。
- * webkitEnterFullScreen（大写 S）是老 Android / 部分浏览器外壳的别名，效果只是把 <video> 撑满页面，
- * 也就是用户说的「还是网页播放器」，所以不再算数；没有这个接口时落回 Fullscreen API。
- */
-const canUseNativeFullscreen = (video?: HTMLVideoElement): boolean => {
-  if (!video) return false;
-  const v = video as HTMLVideoElement & { webkitEnterFullscreen?: () => void };
-  return typeof v.webkitEnterFullscreen === 'function';
-};
-
-/**
- * 把 <video> 交给系统播放器（iOS/iPadOS 的 HTMLVideoElement.webkitEnterFullscreen）。
- *
- * iOS/iPadOS 上真正能「投到系统播放器 / 画中画 / 屏幕旋转」的是原生全屏，
- * 而 Fullscreen API + playsinline 只会把容器撑满网页，看起来像全屏、实际仍是网页播放器。
- * 代价是原生全屏期间 Artplayer 的控件、上下集与广告过滤都会失效，所以只在 Apple 触屏设备上走这条路。
- */
-function enterNativeFullscreen(video?: HTMLVideoElement) {
-  if (!video) return;
-  const v = video as HTMLVideoElement & {
-    webkitEnterFullscreen?: () => void;
-    webkitDisplayingFullscreen?: boolean;
-  };
-  /*
-   * 不暂停、不调 play()。
-   * 以前这里先 pause()、出场后 play()，在 iOS 上正是「点了全屏没反应」的元凶：
-   * 原生全屏进入中一旦暂停，系统播放器可能直接停在待播态甚至不拉起；
-   * 而退出时用 JS 调 play() 又会被移动端的「必须由用户手势触发」规则拦掉。
-   * 让播放连续走，系统播放器接管后自己会接着播。
-   */
-  try {
-    v.webkitEnterFullscreen?.();
-  } catch {
-    /* 个别浏览器外壳会直接抛错，交给调用方的兜底分支 */
-  }
 }
 
 export function PlayerShell({
@@ -364,24 +312,13 @@ export function PlayerShell({
   /**
    * —— 控制栏画质菜单 ——
    *
-   * 画质信息只在 m3u8 内部，用户原来在播放器上完全看不到「现在放的是几 P」，
-   * 也没法在多码率源里手动锁档（ABR 只会按带宽自动挑，网络一抖就掉到 360P 且不再升）。
+   * 具体画什么在 @/lib/quality-menu 里（纯 DOM，和 React 状态无关），这里只提供
+   * getter 和两个回调。抽出去的理由：这段逻辑要读 hls 档位表、写 hls.currentLevel、
+   * 还要自己挂 document 监听，留在播放器组件里只会把本文件继续撑大。
    *
-   * 做法：读 hls.levels 的档位表，渲染成右上角一个按钮 + 下拉。
-   * 之所以不用 Artplayer 的 setting 面板：那是「设置 > 二级面板」，要看画质得点两下，
-   * 而画质是播放时最常切的东西；也不用 art.quality —— 它靠换 URL 切档，
-   * 对同一条 master playlist 只会重新 loadSource，等于重开一集（进度、缓冲全丢）。
-   * 这里直接写 hls.currentLevel，在同一个 MediaSource 内切档，画面不断。
-   *
-   * 档位表在 MANIFEST_PARSED 之前是空的，所以由 setupHls 主动调 refreshQualityMenu()，
-   * 单码率源永远只有 1 档 —— 那种情况直接把菜单藏起来，不给用户点一个没得选的按钮。
+   * 档位表在 MANIFEST_PARSED 之前是空的，所以由 setupHls 主动调 refreshQualityMenu()。
    */
-  const qualityMenuRef = useRef<{
-    root: HTMLDivElement;
-    button: HTMLButtonElement;
-    list: HTMLDivElement;
-    key: string;
-  } | null>(null);
+  const qualityMenuRef = useRef<QualityMenuState | null>(null);
   const qualityMenuDocHandlerRef = useRef<((e: MouseEvent) => void) | null>(null);
 
   /**
@@ -588,188 +525,29 @@ export function PlayerShell({
     }
   };
 
-  const closeQualityMenu = () => {
-    const menu = qualityMenuRef.current;
-    if (!menu) return;
-    menu.list.style.display = 'none';
-    menu.root.classList.remove('open');
-  };
-
-  /*
-   * 面板打开期间每 800ms 重采一次：缓冲余量/带宽/丢帧都是持续变化的，
-   * 一次性快照看到的是「点开那一刻」的数，用户盯着的却是实时状态。
-   * 暂停时不刷新（数据不会变，省掉无意义的 setState）。
+  /**
+   * 画质菜单的宿主上下文：把 refs / 翻译 / 提示回调打包给 @/lib/quality-menu。
+   * 用 useCallback 包一层是为了让 setupHls（只跑一次的 effect 内闭包）能拿到稳定引用。
    */
-  useEffect(() => {
-    if (!statsOpen) return;
-    const timer = setInterval(() => {
-      const art = artRef.current;
-      if (!art || art.video?.paused) return;
-      setStatsRows(collectStats());
-    }, 800);
-    return () => clearInterval(timer);
-  }, [statsOpen, collectStats]);
-
-  const refreshQualityMenu = () => {
-    const hls = hlsRef.current;
-    const art = artRef.current;
-    if (!hls || !art) return;
-    const $player = art.template?.$player as HTMLElement | undefined;
-    if (!$player) return;
-
-    // 单码率源的清单里没写 RESOLUTION，level.width / level.height 都是 0，
-    // 此时按 level 下标降级显示，而不是编一个「0P」出来
-    const levels = hls.levels ?? [];
-    const options = levels.map((level, index) => {
-      const label = qualityLabel(level.height, level.width);
-      return {
-        index,
-        label: label || tt('player.qualityLevel', { n: index + 1 }),
-        bitrate: level.bitrate,
-      };
-    });
-
-    // 清单还没解析出档位时（hls 刚创建）不留空胶囊，等 MANIFEST_PARSED 再来
-    if (options.length === 0) {
-      const menu = qualityMenuRef.current;
-      if (menu) {
-        menu.root.remove();
-        qualityMenuRef.current = null;
-      }
-      return;
-    }
-
-    // manualLevel === -1 才是「自动」；currentLevel 只是当前在播档位，两者不能混用
-    const manual = hls.manualLevel;
-    const currentLevel = hls.currentLevel;
-    // 解码后的真实分辨率：单码率源的清单里没有档位，这是唯一可信的画质来源。
-    // 判档以宽度为准（1920×752 是 1080P 而不是 720P），所以 width 一定要带上。
-    const playing = art.video?.videoHeight ?? 0;
-    const playingWidth = art.video?.videoWidth ?? 0;
-    const playingLabel = qualityLabel(playing, playingWidth) || (playing > 0 ? `${playing}P` : '');
-    /*
-     * 档位数 < 2 不再把整个菜单摘掉。
-     *
-     * 采集站几乎全是单码率（一部片一条 m3u8），按「没得选就别显示」的做法，
-     * 真实内容上这个胶囊永远不会出现——用户的原话就是「现在的播放完全不知道是什么画质」。
-     * 所以拆成两种形态：多档 = 可切的下拉；单档 = 只读胶囊，把实测档位直接写在脸上，
-     * 点一下说明为什么切不了（而不是给一个点不动的灰按钮）。
-     */
-    const single = options.length < 2;
-    const key = single
-      ? `single|${playing}|${playingWidth}|${options.map((o) => o.label).join(',')}`
-      : `${manual}|${currentLevel}|${playing}|${playingWidth}|${options.map((o) => o.label).join(',')}`;
-    let menu = qualityMenuRef.current;
-    if (menu && menu.key === key && menu.root.isConnected) return;
-
-    if (!menu) {
-      const root = document.createElement('div');
-      root.className = 'g-qmenu';
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'g-qmenu-btn';
-      const list = document.createElement('div');
-      list.className = 'g-qmenu-list';
-      list.style.display = 'none';
-      /*
-       * 控制栏点击会冒泡到播放器画面，触发 Artplayer 的「点画面暂停/播放」。
-       * 这里统一拦掉，否则点一下「画质」就把视频暂停了。
-       */
-      const swallow = (e: Event) => e.stopPropagation();
-      root.addEventListener('click', swallow);
-      root.addEventListener('mousedown', swallow);
-      root.addEventListener('dblclick', swallow);
-
-      button.addEventListener('click', (e) => {
-        e.stopPropagation();
-        // 单档源（采集站常态）没有可切的东西：点一下给个解释，比弹出一个只有一项的列表实在
-        if (root.classList.contains('single')) {
-          showHint(tt('player.qualitySingleOnly', { label: button.textContent ?? '' }));
-          return;
-        }
-        const open = list.style.display !== 'none';
-        if (open) {
-          closeQualityMenu();
-        } else {
-          list.style.display = '';
-          root.classList.add('open');
-        }
-      });
-      // 点面板外收起。监听挂在 document 上，卸载时摘掉（见下方 useEffect）
-      const onDocClick = (e: MouseEvent) => {
-        if (!root.contains(e.target as Node)) closeQualityMenu();
-      };
-      qualityMenuDocHandlerRef.current = onDocClick;
-      document.addEventListener('click', onDocClick);
-
-      root.appendChild(button);
-      root.appendChild(list);
-      $player.appendChild(root);
-      menu = { root, button, list, key: '' };
+  const qualityMenuCtx = useCallback((): QualityMenuContext => ({
+    getMenu: () => qualityMenuRef.current,
+    setMenu: (menu) => {
       qualityMenuRef.current = menu;
-    }
+    },
+    getDocHandler: () => qualityMenuDocHandlerRef.current,
+    setDocHandler: (handler) => {
+      qualityMenuDocHandlerRef.current = handler;
+    },
+    getPlayerEl: () => artRef.current?.template?.$player as HTMLElement | undefined,
+    getHls: () => hlsRef.current as QualityMenuHls | null,
+    getVideo: () => artRef.current?.video as HTMLVideoElement | undefined,
+    tt,
+    showHint,
+  }), [tt]);
 
-    menu.key = key;
-    // 按钮上直接写当前画质：正常情况下用户不需要展开菜单就已经知道自己在看几 P
-    const active = manual >= 0 ? options.find((o) => o.index === manual) : undefined;
-    const headline =
-      (single ? playingLabel : active?.label ?? playingLabel) ||
-      (single ? options[0]?.label : '') ||
-      '';
-    menu.root.classList.toggle('single', single);
-    menu.button.textContent = single
-      ? headline || tt('player.qualityUnknown')
-      : manual < 0
-        ? `${tt('player.qualityAuto')}${headline ? ` · ${headline}` : ''}`
-        : headline || tt('player.quality');
-    menu.button.title = single ? tt('player.qualitySingleTip') : tt('player.qualitySwitchTip');
-    // 单档时不展开下拉：列表里只有一个和按钮重复的档位，点开纯属浪费一次点击
-    if (single) {
-      menu.list.textContent = '';
-      menu.list.style.display = 'none';
-      menu.root.classList.remove('open');
-      menu.list.style.pointerEvents = 'none';
-      return;
-    }
-    menu.list.style.pointerEvents = '';
+  // 收起菜单只发生在 lib 内部（点空白处 / 选项后），组件侧只需刷新
+  const refreshQualityMenu = () => refreshQualityMenuImpl(qualityMenuCtx());
 
-    menu.list.textContent = '';
-    const makeItem = (label: string, active: boolean, onPick: () => void, hint?: string) => {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = active ? 'g-qmenu-item on' : 'g-qmenu-item';
-      item.textContent = label;
-      if (hint) {
-        const em = document.createElement('em');
-        em.textContent = hint;
-        item.appendChild(em);
-      }
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        onPick();
-        closeQualityMenu();
-      });
-      menu!.list.appendChild(item);
-    };
-
-    makeItem(tt('player.qualityAuto'), manual < 0, () => {
-      const self = hlsRef.current;
-      if (!self) return;
-      // 回到自动之前先放开手动限制，否则 hls 会继续锁在 currentLevel 上
-      self.currentLevel = -1;
-      self.nextLevel = -1;
-      refreshQualityMenu();
-    });
-    options.forEach((o) => {
-      makeItem(o.label, manual === o.index, () => {
-        const self = hlsRef.current;
-        if (!self) return;
-        self.currentLevel = o.index;
-        showHint(tt('player.qualitySwitched', { label: o.label }));
-        refreshQualityMenu();
-      });
-    });
-  };
 
   /**
    * 初始化/切换 HLS。allowProxyFallback：直连致命网络错误（CORS/防盗链/分片被拒）时，
@@ -1409,12 +1187,7 @@ export function PlayerShell({
       el?.removeEventListener('contextmenu', onContextMenu);
       art.video?.removeEventListener('resize', reportVideoHeight);
       // 画质菜单是我们直接塞进播放器 DOM 的节点，必须自己摘干净，否则残留到下一集
-      if (qualityMenuDocHandlerRef.current) {
-        document.removeEventListener('click', qualityMenuDocHandlerRef.current);
-        qualityMenuDocHandlerRef.current = null;
-      }
-      qualityMenuRef.current?.root.remove();
-      qualityMenuRef.current = null;
+      destroyQualityMenu(qualityMenuCtx());
       // 本地字幕的 blob URL 必须显式释放：整段字幕文本挂在它上面，不 revoke 会一直留着
       if (localTrackUrlRef.current) {
         URL.revokeObjectURL(localTrackUrlRef.current);
@@ -1543,121 +1316,34 @@ export function PlayerShell({
         </div>
       )}
       {/*
-        视频信息面板：用 portal 挂进播放器的 $player 根节点，而不是这个 React 根 div。
+        视频信息面板 / 字幕面板都用 portal 挂进播放器的 $player 根节点，而不是这个 React 根 div。
         $player 是 Artplayer 自己的浮层坐标系（画质胶囊就挂在那里）；挂在外层根 div 里
         会落在 .art-video、.art-bottom 之下，进全屏（$player 被浏览器拉成全屏元素）时会被裁掉。
         数据每 800ms 刷新，见上面的 setInterval effect，所以面板不必是「点开快照」。
+        同一时刻只开一个（toggleStats / toggleSubtitle 里互相关闭）。
       */}
-      {statsOpen &&
-        statsPortalEl &&
-        createPortal(
-          <div className="g-vstats" role="dialog" aria-label={tt('player.statsPanel')}>
-            <div className="g-vstats-head">
-              <strong>{tt('player.statsPanel')}</strong>
-              <button type="button" className="g-vstats-copy" onClick={() => { void copyStats(); }}>
-                {statsCopied ? tt('player.statsCopied') : tt('player.statsCopy')}
-              </button>
-              <button
-                type="button"
-                className="g-vstats-x"
-                aria-label={tt('common.close')}
-                onClick={() => setStatsOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="g-vstats-body">
-              {statsRows.length === 0 ? (
-                <p className="g-vstats-empty">{tt('player.statsEmpty')}</p>
-              ) : (
-                statsRows.map((group) => (
-                  <div className="g-vstats-group" key={group.title}>
-                    <span className="g-vstats-gtitle">{group.title}</span>
-                    {group.rows.map((row) => (
-                      <div className={row.warn ? 'g-vstats-row warn' : 'g-vstats-row'} key={row.label}>
-                        <span className="g-vstats-k">{row.label}</span>
-                        <span className="g-vstats-v">
-                          {row.value}
-                          {row.hint && <em>{row.hint}</em>}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>,
-          statsPortalEl,
-        )}
-      {/* 字幕面板：与视频信息面板同一坐标系（$player），同一时刻只开一个 */}
-      {subtitleOpen &&
-        statsPortalEl &&
-        createPortal(
-          <div className="g-vstats g-subpanel" role="dialog" aria-label={tt('player.subtitle')}>
-            <div className="g-vstats-head">
-              <strong>{tt('player.subtitle')}</strong>
-              <button
-                type="button"
-                className="g-vstats-copy"
-                onClick={() => {
-                  setSubtitleOpen(false);
-                  subtitleInputRef.current?.click();
-                }}
-              >
-                {tt('player.subtitleLoad')}
-              </button>
-              <button
-                type="button"
-                className="g-vstats-x"
-                aria-label={tt('common.close')}
-                onClick={() => setSubtitleOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="g-vstats-body">
-              {subtitleNote && <p className="g-vstats-empty">{subtitleNote}</p>}
-              <div className="g-sub-list">
-                <button
-                  type="button"
-                  className={subtitleOptions.some((o) => o.active) ? 'g-sub-item' : 'g-sub-item on'}
-                  onClick={() => pickSubtitle('off')}
-                >
-                  {tt('player.subtitleOff')}
-                  {!subtitleOptions.some((o) => o.active) && <em>{tt('player.current')}</em>}
-                </button>
-                {subtitleOptions.map((option) => (
-                  <button
-                    type="button"
-                    key={option.id}
-                    className={option.active ? 'g-sub-item on' : 'g-sub-item'}
-                    onClick={() => pickSubtitle(option.id)}
-                  >
-                    {option.label}
-                    {option.lang && <em>{option.lang}</em>}
-                    {option.active && <em>{tt('player.current')}</em>}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {/*
-              文件选择框放在面板里（display:none），点「载入本地字幕」触发。
-              accept 只列 .srt/.vtt：其它格式转不了，让用户在文件对话框里就被挡住比读到一半才报错好。
-            */}
-            <input
-              ref={subtitleInputRef}
-              type="file"
-              accept=".srt,.vtt,text/vtt,application/x-subrip"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = '';
-                if (file) void loadLocalSubtitle(file);
-              }}
-            />
-          </div>,
-          statsPortalEl,
-        )}
+      {statsOpen && statsPortalEl && createPortal(
+        <StatsPanel
+          rows={statsRows}
+          copied={statsCopied}
+          tt={tt}
+          onCopy={() => { void copyStats(); }}
+          onClose={() => setStatsOpen(false)}
+        />,
+        statsPortalEl,
+      )}
+      {subtitleOpen && statsPortalEl && createPortal(
+        <SubtitlePanel
+          options={subtitleOptions}
+          note={subtitleNote}
+          tt={tt}
+          inputRef={subtitleInputRef}
+          onPick={pickSubtitle}
+          onLoadLocal={(file) => { void loadLocalSubtitle(file); }}
+          onClose={() => setSubtitleOpen(false)}
+        />,
+        statsPortalEl,
+      )}
       {hint && (
         <div className="absolute z-20 top-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-sm px-3 py-1.5 rounded-full pointer-events-none animate-fade-in">
           {hint}

@@ -1601,6 +1601,12 @@ const EN: Dict = {
 const DICTS: Record<AppLanguage, Dict> = { zh: ZH, en: EN };
 
 /**
+ * 翻译函数签名。纯函数（拿不到 hook）需要文案时由组件把 `useT()` 的结果传进来，
+ * 与 lib/playback-stats.ts 的 StatsTranslator、lib/quality-menu.ts 的 QualityMenuTranslator 同范式。
+ */
+export type Translator = (key: string, vars?: Record<string, string | number>) => string;
+
+/**
  * 取文案。vars 用 `{name}` 占位符替换。
  * 未收录的 key 原样返回 —— 宁可界面上出现一个 `nav.xxx`，也不要静默变成空白按钮。
  */
