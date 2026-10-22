@@ -16,6 +16,7 @@ import {
 } from '@/lib/source-switch';
 import type { QualityEntry } from '@/lib/types';
 import { useToast } from './toast';
+import { useLang, useT } from './lang-sync';
 
 /**
  * 播放页侧栏「换源」卡（替代原来的「采集源」装饰卡）。
@@ -49,6 +50,8 @@ export function SourceSwitchCard({
   sourceUrl,
   onMore,
 }: Props) {
+  const t = useT();
+  const lang = useLang();
   const store = useAppStore();
   const router = useRouter();
   const { toast } = useToast();
@@ -217,7 +220,7 @@ export function SourceSwitchCard({
     const isCurrent = c.source.key === currentSourceKey && String(c.result.vodId) === String(currentVodId);
     if (isCurrent) return;
     if (c.episodes === 0) {
-      toast('该源暂无可用剧集', 'warning');
+      toast(t('ss.noEpisodes'), 'warning');
       return;
     }
     const targetIndex = c.episodes ? Math.min(currentIndex, c.episodes - 1) : 0;
@@ -236,9 +239,9 @@ export function SourceSwitchCard({
   return (
     <div className="g-card g-panel" glass="frosted" glass-blur="16">
       <h4>
-        换源 <em>sources</em>
-        <button className="g-act" onClick={run} disabled={testing} title="搜索所有已启用源并测速">
-          {testing ? '测速中…' : '测速全部'}
+        {t('ss.title')} <em>sources</em>
+        <button className="g-act" onClick={run} disabled={testing} title={t('ss.testAll')}>
+          {testing ? t('ss.testing') : t('ss.testAll')}
         </button>
       </h4>
 
@@ -256,9 +259,9 @@ export function SourceSwitchCard({
                 disabled={isCurrent}
                 title={
                   disabled
-                    ? `${c.source.name}（该源此前连续失败已自动停用，可在设置里恢复）`
+                    ? t('ss.disabledTip', { name: c.source.name })
                     : c.ok === false
-                      ? `${c.source.name}：${c.error || '不可用'}`
+                      ? t('ss.failedTip', { name: c.source.name, error: c.error || t('ss.unavailable') })
                       : c.source.name
                 }
               >
@@ -268,7 +271,7 @@ export function SourceSwitchCard({
                   entry={store.qualityMap?.[qualityKey(c.source.key, c.result.vodId)]}
                   loading={probingQuality && !store.qualityMap?.[qualityKey(c.source.key, c.result.vodId)]}
                 />
-                <em>{isCurrent ? '当前' : latencyText(c)}</em>
+                <em>{isCurrent ? t('ss.current') : latencyText(c, lang)}</em>
               </button>
             );
           })}
@@ -276,25 +279,26 @@ export function SourceSwitchCard({
       ) : (
         <div className="g-srcidle">
           {testing ? (
-            <p>正在搜索各源…</p>
+            <p>{t('ss.searchingSources')}</p>
           ) : ran ? (
             /* 测过一轮还是空的：不能再说「点测速看看哪个快」，那是没测过时的提示，
                会把「全网都没有这部」误报成「你还没点按钮」 */
-            <p>
-              已搜完 {sources.length} 个源，都没有《{title}》
-            </p>
+            <p>{t('ss.noneFound', { n: sources.length, title })}</p>
           ) : (
-            <p>共 {sources.length} 个已启用源，点「测速全部」看看哪个最快</p>
+            <p>{t('ss.idleHint', { n: sources.length })}</p>
           )}
         </div>
       )}
 
       {sorted.length > 0 && !testing && (
         <p className="g-srcidle">
-          {sorted.filter((c) => c.ok !== false).length} 个可用 ·{' '}
-          {sorted.filter((c) => c.ms !== undefined).length}/{sorted.length} 已测速
+          {t('ss.availableStat', {
+            ok: sorted.filter((c) => c.ok !== false).length,
+            done: sorted.filter((c) => c.ms !== undefined).length,
+            total: sorted.length,
+          })}
           {/* 搜索没命中/直接报错的源不会进列表，这里交代一句，免得用户以为源被吞了 */}
-          {sources.length > sorted.length && ` · 另有 ${sources.length - sorted.length} 个源没有这部`}
+          {sources.length > sorted.length && t('ss.extraMissing', { n: sources.length - sorted.length })}
         </p>
       )}
 
@@ -303,7 +307,7 @@ export function SourceSwitchCard({
         style={{ width: '100%', justifyContent: 'center' }}
         onClick={() => onMore(sorted)}
       >
-        查看更多来源
+        {t('ss.more')}
       </button>
     </div>
   );

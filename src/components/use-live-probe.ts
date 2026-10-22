@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/client-api';
 import { LIVE_PROBE_TTL_MS, useAppStore, type LiveProbeEntry } from '@/lib/store';
+import { useT } from './lang-sync';
 
 /**
  * 直播频道批量测活 hook：
@@ -39,6 +40,7 @@ const MAX_TARGETS = 20_000;
 const FLUSH_INTERVAL_MS = 200;
 
 export function useLiveProbe() {
+  const t = useT();
   const cache = useAppStore((s) => s.liveProbeResults);
   const [progress, setProgress] = useState<{ done: number; total: number; startedAt: number } | null>(null);
   const [hint, setHint] = useState('');
@@ -116,7 +118,7 @@ export function useLiveProbe() {
       const allUrls = [...new Set(targets.map((t) => t.url))];
       if (allUrls.length === 0) return;
       if (allUrls.length > MAX_TARGETS) {
-        showHint(`频道数超过 ${MAX_TARGETS}，仅测前 ${MAX_TARGETS} 个，请精简订阅源`);
+        showHint(t('probe.tooMany', { max: MAX_TARGETS }));
       }
       const urls = allUrls.slice(0, MAX_TARGETS);
 
@@ -128,7 +130,7 @@ export function useLiveProbe() {
         return !e || now - e.timestamp >= LIVE_PROBE_TTL_MS;
       });
       if (stale.length === 0) {
-        showHint('测活结果 6 小时内有效，无需重测');
+        showHint(t('probe.cached'));
         return;
       }
 
@@ -214,7 +216,8 @@ export function useLiveProbe() {
       setProgress(null);
       if (abortRef.current === controller) abortRef.current = null;
     },
-    [showHint]
+    // t 必须进依赖：语言切换后提示文案要跟着变
+    [showHint, t]
   );
 
   return { results, progress, probe, cancel, clear, isProbing: progress !== null, hint };

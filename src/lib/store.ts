@@ -12,6 +12,9 @@ import { PERSIST_KEY, createThrottledStorage } from './persist-storage';
  * 旧版把 10+ 个零散 localStorage key 当作跨页面状态总线，这里统一为单一 store。
  */
 
+/** 界面语言：只影响框架文案（导航/页脚/设置/播放器按钮），不影响源站内容 */
+export type AppLanguage = 'zh' | 'en';
+
 export interface AppSettings {
   customAPIs: SourceConfig[];
   selectedKeys: string[];
@@ -31,6 +34,29 @@ export interface AppSettings {
   /** 用户是否在设置中主动选择过封面图加载方式；为 false 时部署者的 DEFAULT_IMAGE_MODE 默认值可生效 */
   imageProxyModeTouched: boolean;
   customImageProxy: string;
+  /** 界面语言；默认 zh。切换后立即生效，无需刷新（见 components/lang-sync.tsx） */
+  lang: AppLanguage;
+}
+
+/**
+ * 点播收藏（追剧）。
+ * 只存「哪部片」的定位信息，不存播放进度 —— 进度本来就在 IndexedDB 的 progress/history 里，
+ * 两处都存会分叉：收藏里那份额度迟早和实际的看到哪儿对不上。
+ */
+export interface VodFavorite {
+  sourceKey: string;
+  vodId: string;
+  title: string;
+  pic?: string;
+  /** 收藏时的总集数，详情页拉不到时用来占位显示 */
+  totalEpisodes?: number;
+  /** 收藏时间，用于排序（新收藏在前） */
+  addedAt: number;
+}
+
+/** 收藏项的主键：与 history/progress 用同一套拼接方式，避免同一部片出现两条 */
+export function vodFavoriteKey(sourceKey: string, vodId: string): string {
+  return `${sourceKey}_${vodId}`;
 }
 
 /** 一次订阅同步导入的数量（点播 / 直播），用于列表内展示同步结果 */
@@ -212,6 +238,8 @@ interface AppState extends AppSettings {
   sourceHealth: Record<string, SourceHealthEntry>;
   /** 画质缓存（按 `sourceKey:vodId`）：播放实测与搜索时懒探测共用一份 */
   qualityMap: Record<string, QualityEntry>;
+  /** 点播收藏（追剧）：新收藏排在前 */
+  vodFavorites: VodFavorite[];
   /** 已出现过的 env 预置订阅 URL（持久化：用户删除后不再被自动加回） */
   envSubsSeen: string[];
   addCustomApi: (api: Omit<SourceConfig, 'key'> & { key?: string }) => void;
@@ -247,6 +275,10 @@ interface AppState extends AppSettings {
   /** 批量启停直播源：一次 set 完成，避免逐条 toggle 的 O(n) 次持久化 */
   toggleLiveSelectedMany: (urls: string[]) => void;
   toggleLiveFavorite: (channelUrl: string) => void;
+  /** 切换点播收藏；返回切换后是否为「已收藏」，调用方据此给 toast */
+  toggleVodFavorite: (item: Omit<VodFavorite, 'addedAt'>) => boolean;
+  /** 从收藏里移除（追剧列表的删除按钮） */
+  removeVodFavorite: (sourceKey: string, vodId: string) => void;
   addLiveRecent: (entry: Omit<LiveRecentEntry, 'timestamp'>) => void;
   /** 删除单条最近观看（按流 URL） */
   removeLiveRecent: (channelUrl: string) => void;
@@ -307,6 +339,7 @@ export const useAppStore = create<AppState>()(
       liveProbeResults: {},
       sourceHealth: {},
       qualityMap: {},
+      vodFavorites: [],
       envSubsSeen: [],
       selectedKeys: [],
       yellowFilter: true,
@@ -328,6 +361,7 @@ export const useAppStore = create<AppState>()(
       imageProxyMode: 'direct',
       imageProxyModeTouched: false,
       customImageProxy: '',
+      lang: 'zh',
 
       addCustomApi: (api) => {
         const list = get().customAPIs;
@@ -657,6 +691,24 @@ export const useAppStore = create<AppState>()(
         });
       },
 
+      toggleVodFavorite: (item) => {
+        const key = vodFavoriteKey(item.sourceKey, item.vodId);
+        const cur = get().vodFavorites;
+        const exists = cur.some((f) => vodFavoriteKey(f.sourceKey, f.vodId) === key);
+        if (exists) {
+          set({ vodFavorites: cur.filter((f) => vodFavoriteKey(f.sourceKey, f.vodId) !== key) });
+          return false;
+        }
+        // 新收藏排最前：追剧列表按「最近开始追的在前」比按时间倒序更符合直觉
+        set({ vodFavorites: [{ ...item, addedAt: Date.now() }, ...cur] });
+        return true;
+      },
+
+      removeVodFavorite: (sourceKey, vodId) => {
+        const key = vodFavoriteKey(sourceKey, vodId);
+        set({ vodFavorites: get().vodFavorites.filter((f) => vodFavoriteKey(f.sourceKey, f.vodId) !== key) });
+      },
+
       addLiveRecent: (entry) => {
         const rest = get().liveRecent.filter((r) => r.url !== entry.url);
         set({ liveRecent: [{ ...entry, timestamp: Date.now() }, ...rest].slice(0, 20) });
@@ -793,8 +845,9 @@ export const useAppStore = create<AppState>()(
       // v2：直播源归属改为多引用（fromSubscription 单值 → fromSubscriptions 数组）。
       // v3：首页推荐默认值 hot-list → douban（影视榜单接口常被限流，首屏常空）。
       // v4：跳过片头/片尾的出厂默认改为 0（90s/30s 默认跳太激进，常把正片开场吃掉）。
+      // v5：新增点播收藏 vodFavorites（追剧列表，新收藏在前）。
       // 此前未声明 version 的存量数据会被视为 v0 并走 migrate 补齐。
-      version: 4,
+      version: 5,
       migrate: (persisted, version) => {
         const state = { ...((persisted ?? {}) as Partial<AppState>) };
         if (!Array.isArray(state.liveRecent)) state.liveRecent = [];
@@ -830,6 +883,10 @@ export const useAppStore = create<AppState>()(
           state.skipIntroSec = 0;
           state.skipOutroSec = 0;
         }
+        if (!Array.isArray(state.vodFavorites)) state.vodFavorites = [];
+        // lang 是 v5 之后追加的字段，不单独提版本号：缺省即中文，
+        // persist 的浅合并本来也会落回初始值，这里显式写一次以免将来改初始值时行为漂移。
+        if (state.lang !== 'en') state.lang = 'zh';
         return state as AppState;
       },
       // envSources 由服务端每次下发，不进 localStorage；
@@ -846,6 +903,7 @@ export const useAppStore = create<AppState>()(
         liveRecent: s.liveRecent,
         sourceHealth: s.sourceHealth,
         qualityMap: s.qualityMap,
+        vodFavorites: s.vodFavorites,
         envSubsSeen: s.envSubsSeen,
         yellowFilter: s.yellowFilter,
         adFilter: s.adFilter,
@@ -858,6 +916,7 @@ export const useAppStore = create<AppState>()(
         imageProxyMode: s.imageProxyMode,
         imageProxyModeTouched: s.imageProxyModeTouched,
         customImageProxy: s.customImageProxy,
+        lang: s.lang,
       }),
       // 同步 storage 会在模块加载时立即 rehydrate（早于 React hydration），
       // 一旦首屏渲染依赖持久化状态就会与 SSR 输出不一致。

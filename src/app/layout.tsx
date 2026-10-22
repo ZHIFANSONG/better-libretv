@@ -30,6 +30,9 @@ export const viewport: Viewport = {
   themeColor: '#0a0a0a',
   width: 'device-width',
   initialScale: 1,
+  // 必须开 cover：否则 iPhone 的 Safari 会把视口限制在「安全区」以内，
+  // env(safe-area-inset-*) 恒等于 0，底部导航/tab 条会压在 Home 指示条下面。
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

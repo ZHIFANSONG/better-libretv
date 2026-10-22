@@ -5,6 +5,7 @@ import { useAppStore } from '@/lib/store';
 import { useToast } from './toast';
 import { api } from '@/lib/client-api';
 import { formatRelativeTime, hostnameOf, validateSourceUrl, cn } from '@/lib/utils';
+import { useLang, useT } from './lang-sync';
 import { SearchInput, SectionTitle, TestBadge, useSourceTests } from './settings-shared';
 import { EmptyState } from './states';
 import { Icon } from './icon';
@@ -17,12 +18,13 @@ import { Icon } from './icon';
 type LiveFilter = 'all' | 'enabled' | 'disabled' | 'sub' | 'manual';
 
 // 与点播源面板保持同一组筛选项与顺序：先状态（已启用 / 已停用），后来源（来自订阅 / 手动添加）
-const LIVE_FILTERS: { id: LiveFilter; label: string }[] = [
-  { id: 'all', label: '全部' },
-  { id: 'enabled', label: '已启用' },
-  { id: 'disabled', label: '已停用' },
-  { id: 'sub', label: '来自订阅' },
-  { id: 'manual', label: '手动添加' },
+// 与点播源面板共用同一组筛选文案（sm.filter*）
+const LIVE_FILTERS: { id: LiveFilter; labelKey: string }[] = [
+  { id: 'all', labelKey: 'sm.filterAll' },
+  { id: 'enabled', labelKey: 'sm.filterEnabled' },
+  { id: 'disabled', labelKey: 'sm.filterDisabled' },
+  { id: 'sub', labelKey: 'sm.filterSub' },
+  { id: 'manual', labelKey: 'sm.filterManual' },
 ];
 
 interface LiveRow {
@@ -37,6 +39,8 @@ interface LiveRow {
 export function LiveSourceManager() {
   const store = useAppStore();
   const { toast } = useToast();
+  const t = useT();
+  const lang = useLang();
   const [adding, setAdding] = useState(false);
   /** 正在编辑的手动源 URL（与「添加」共用同一表单） */
   const [editing, setEditing] = useState<string | null>(null);
@@ -93,12 +97,12 @@ export function LiveSourceManager() {
     if (!snapshot) return;
     // 正在编辑的条目被移除时收起表单，避免表单悬空
     if (editing === row.url) setEditing(null);
-    toast(`已移除「${row.label}」`, 'info', {
+    toast(t('lsm.removed', { name: row.label }), 'info', {
       action: {
-        label: '撤销',
+        label: t('common.undo'),
         onClick: () => {
           useAppStore.getState().restoreLiveSubscription(snapshot);
-          toast('已恢复', 'success');
+          toast(t('common.restored'), 'success');
         },
       },
     });
@@ -109,12 +113,19 @@ export function LiveSourceManager() {
   return (
     <section>
       <SectionTitle
-        title="直播源"
-        hint={empty ? 'M3U 订阅 · /live 页面播放' : `共 ${store.liveEnvSources.length + store.liveSubscriptions.length} 个 · 已启用 ${store.liveSelectedUrls.length}`}
+        title={t('sm.tabLive')}
+        hint={
+          empty
+            ? t('lsm.hintEmpty')
+            : t('lsm.hint', {
+                n: store.liveEnvSources.length + store.liveSubscriptions.length,
+                on: store.liveSelectedUrls.length,
+              })
+        }
         extra={
           <button className="btn-primary btn-sm" onClick={() => setAdding(true)}>
             <Icon name="plus" className="w-3.5 h-3.5" />
-            添加直播源
+            {t('lsm.add')}
           </button>
         }
       />
@@ -143,18 +154,18 @@ export function LiveSourceManager() {
       {empty && !adding && editingSource === undefined ? (
         <EmptyState
           icon="link"
-          title="还没有添加任何直播源"
-          description="添加 M3U 地址后即可在「直播」页按分组浏览与播放频道；也可在「数据源订阅」中一次导入点播源与直播源；部署者还可通过 DEFAULT_LIVE_SOURCES 环境变量预置。"
+          title={t('lsm.emptyTitle')}
+          description={t('lsm.emptyDesc')}
           action={
             <button className="btn-primary btn-sm" onClick={() => setAdding(true)}>
-              添加第一个直播源
+              {t('lsm.emptyAction')}
             </button>
           }
         />
       ) : (
         <>
           <div className="space-y-2 mb-3">
-            <SearchInput value={query} onChange={setQuery} placeholder="搜索名称或地址" />
+            <SearchInput value={query} onChange={setQuery} placeholder={t('sm.searchPlaceholder')} />
             <div className="flex flex-wrap items-center gap-1">
               {LIVE_FILTERS.map((f) => (
                 <button
@@ -166,18 +177,18 @@ export function LiveSourceManager() {
                   onClick={() => setFilter(f.id)}
                   aria-pressed={filter === f.id}
                 >
-                  {f.label}
+                  {t(f.labelKey)}
                 </button>
               ))}
-              <span className="ml-auto text-[11px] text-faint">显示 {rows.length} 个</span>
+              <span className="ml-auto text-[11px] text-faint">{t('sm.showing', { n: rows.length })}</span>
             </div>
             <button className="btn-ghost btn-sm" onClick={toggleAll} disabled={rows.length === 0}>
-              {allEnabled ? '全部停用' : '全部启用'}
+              {allEnabled ? t('sm.disableAll') : t('sm.enableAll')}
             </button>
           </div>
 
           {rows.length === 0 ? (
-            <EmptyState variant="plain" title="没有符合条件的源" />
+            <EmptyState variant="plain" title={t('sm.filterEmpty')} />
           ) : (
             <ul className="space-y-2">
               {rows.map((row) => {
@@ -198,43 +209,45 @@ export function LiveSourceManager() {
                         className="h-4 w-4 accent-accent shrink-0"
                         checked={enabled}
                         onChange={() => useAppStore.getState().toggleLiveSelected(row.url)}
-                        aria-label={enabled ? `停用 ${row.label}` : `启用 ${row.label}`}
-                        title={enabled ? '已启用，取消勾选可停用' : '已停用，勾选后生效'}
+                        aria-label={
+                          enabled ? t('lsm.disableAria', { name: row.label }) : t('lsm.enableAria', { name: row.label })
+                        }
+                        title={enabled ? t('lsm.enabledTip') : t('lsm.disabledTip')}
                       />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-content truncate">
                           {row.label}
                           {row.preset && (
                             <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-chip text-faint align-middle">
-                              部署者预置
+                              {t('sm.envBadge')}
                             </span>
                           )}
                           {fromSubscription && (
                             <span
                               className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent align-middle"
-                              title={`来自 ${row.fromSubscriptions.length} 个数据源订阅；删除单个订阅不影响此源，仅当不再被任何订阅引用时才会移除`}
+                              title={t('lsm.subTip', { n: row.fromSubscriptions.length })}
                             >
-                              订阅
+                              {t('sm.subBadge')}
                             </span>
                           )}
                         </div>
                         <div className="text-xs text-faint truncate">
                           {row.url}
-                          {row.epgUrl && ' · 已配置节目单'}
-                          {row.lastSync && ` · 同步于 ${formatRelativeTime(row.lastSync)}`}
+                          {row.epgUrl && t('lsm.epgConfigured')}
+                          {row.lastSync && t('sm.syncAt', { time: formatRelativeTime(row.lastSync, lang) })}
                         </div>
                       </div>
                       <TestBadge
                         state={tests[row.url]}
                         onTest={() => runTest(row.url, () => api.liveTest(row.url))}
-                        title="拉取解析并测速（频道数量与耗时）"
-                        badgeWhenOk={({ count }) => `✓ ${count ?? 0} 频道`}
+                        title={t('lsm.testTip')}
+                        badgeWhenOk={({ count }) => `✓ ${count ?? 0}`}
                       />
                       <button
                         className="rounded-md p-2 text-muted transition-colors hover:bg-hover hover:text-accent shrink-0"
                         onClick={() => exportM3u(row.url)}
-                        aria-label="导出 M3U"
-                        title="导出为标准 M3U 文件"
+                        aria-label={t('lsm.exportM3uAria')}
+                        title={t('lsm.exportM3uTip')}
                       >
                         <Icon name="download" className="w-4 h-4" />
                       </button>
@@ -244,16 +257,16 @@ export function LiveSourceManager() {
                           <button
                             className="rounded-md p-2 text-muted/30 cursor-not-allowed shrink-0"
                             disabled
-                            aria-label="订阅源不可单独编辑"
-                            title="该源来自数据源订阅，修改会在下次同步时被覆盖；请修改远端订阅内容后重新同步"
+                            aria-label={t('sm.subEditLockedAria')}
+                            title={t('sm.subEditLockedTip')}
                           >
                             <Icon name="edit" className="w-4 h-4" />
                           </button>
                           <button
                             className="rounded-md p-2 text-muted/30 cursor-not-allowed shrink-0"
                             disabled
-                            aria-label="订阅源不可单独删除"
-                            title="该源来自数据源订阅；请到「数据源订阅」中删除整个订阅"
+                            aria-label={t('sm.subDeleteLockedAria')}
+                            title={t('sm.subDeleteLockedTip')}
                           >
                             <Icon name="trash" className="w-4 h-4" />
                           </button>
@@ -263,16 +276,16 @@ export function LiveSourceManager() {
                           <button
                             className="rounded-md p-2 text-muted transition-colors hover:bg-hover hover:text-accent shrink-0"
                             onClick={() => setEditing(row.url)}
-                            aria-label="编辑"
-                            title="编辑名称与节目单地址"
+                            aria-label={t('sm.edit')}
+                            title={t('lsm.editNameTip')}
                           >
                             <Icon name="edit" className="w-4 h-4" />
                           </button>
                           <button
                             className="rounded-md p-2 text-muted transition-colors hover:bg-hover hover:text-danger shrink-0"
                             onClick={() => removeWithUndo(row)}
-                            aria-label="删除直播源"
-                            title="移除（可在提示中撤销）"
+                            aria-label={t('lsm.deleteAria')}
+                            title={t('sm.removeTip')}
                           >
                             <Icon name="trash" className="w-4 h-4" />
                           </button>
@@ -307,6 +320,7 @@ function LiveSourceForm({
   const [name, setName] = useState('');
   const [epg, setEpg] = useState('');
   const { toast } = useToast();
+  const t = useT();
 
   useEffect(() => {
     if (visible) {
@@ -325,7 +339,7 @@ function LiveSourceForm({
     }
     const u = url.trim();
     if (!validateSourceUrl(u)) {
-      toast('订阅地址需以 http:// 或 https:// 开头', 'warning');
+      toast(t('lsm.urlInvalid'), 'warning');
       return;
     }
     onSubmit({ url: u, name: name.trim() || undefined, epg: epg.trim() || undefined });
@@ -335,36 +349,36 @@ function LiveSourceForm({
     <div className="space-y-2 border border-line rounded-lg p-3 bg-chip mb-2">
       <input
         className="input w-full disabled:opacity-60"
-        aria-label="M3U 订阅地址"
-        placeholder="M3U 订阅地址，如 https://example.com/list.m3u"
+        aria-label={t('lsm.urlAria')}
+        placeholder={t('lsm.urlPlaceholder')}
         value={url}
         maxLength={500}
         disabled={!!initial}
-        title={initial ? '地址不可修改；如需更换请删除后重新添加' : undefined}
+        title={initial ? t('lsm.urlLockedTip') : undefined}
         onChange={(e) => setUrl(e.target.value)}
       />
       <input
         className="input w-full"
-        aria-label="直播源名称（可选）"
-        placeholder="名称（可选），如 我的频道列表"
+        aria-label={t('lsm.nameAria')}
+        placeholder={t('lsm.namePlaceholder')}
         value={name}
         maxLength={50}
         onChange={(e) => setName(e.target.value)}
       />
       <input
         className="input w-full"
-        aria-label="EPG 节目单地址（可选）"
-        placeholder="EPG 节目单地址（可选，XMLTV xml/xml.gz）"
+        aria-label={t('lsm.epgAria')}
+        placeholder={t('lsm.epgPlaceholder')}
         value={epg}
         maxLength={500}
         onChange={(e) => setEpg(e.target.value)}
       />
       <div className="flex gap-2 justify-end">
         <button className="btn-ghost btn-sm" onClick={onCancel}>
-          取消
+          {t('common.cancel')}
         </button>
         <button className="btn-primary btn-sm" onClick={submit}>
-          添加
+          {initial ? t('sm.update') : t('sm.add')}
         </button>
       </div>
     </div>

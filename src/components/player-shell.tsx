@@ -1,16 +1,25 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Artplayer from 'artplayer';
 import Hls, { type HlsConfig } from 'hls.js';
 
+import { useT } from './lang-sync';
 import { PlaybackRecovery, describeHlsError } from '@/lib/playback-recovery';
 import { createHlsLoader } from '@/lib/hls-loader';
 import { formatTime } from '@/lib/utils';
 import { qualityLabel } from '@/lib/quality';
 import { copyToClipboard } from '@/lib/clipboard';
 import { clearSegmentTimings, takeSegmentTiming } from '@/lib/segment-timing';
+import { collectSubtitleOptions, looksLikeSrt, srtToVtt, type SubtitleOption } from '@/lib/subtitle';
+import {
+  bindMediaSessionHandlers,
+  clearMediaSession,
+  mediaSessionSupported,
+  setMediaSessionMetadata,
+  setMediaSessionState,
+} from '@/lib/media-session';
 import {
   bufferedAheadOf,
   buildStatsGroups,
@@ -30,6 +39,18 @@ import {
  * 每个图形都写死自己的 fill/stroke，避免被 Artplayer 的
  * `.art-video-player svg{fill:var(--art-font-color)}` 灌成实心圆。
  */
+/**
+ * 控制栏「字幕」按钮图标：方框里写 CC。
+ * 和 VSTATS_ICON 一样自己写死 fill/stroke，防止被 Artplayer 的 svg 样式灌成实心块。
+ */
+const SUBTITLE_ICON = [
+  '<svg viewBox="0 0 22 22" width="22" height="22" xmlns="http://www.w3.org/2000/svg">',
+  '<rect x="2.4" y="5.2" width="17.2" height="11.6" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/>',
+  '<path d="M10.4 9.4a2.6 2.6 0 100 3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+  '<path d="M15.9 9.4a2.6 2.6 0 100 3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+  '</svg>',
+].join('');
+
 const VSTATS_ICON = [
   '<svg viewBox="0 0 22 22" width="22" height="22" xmlns="http://www.w3.org/2000/svg">',
   '<circle cx="11" cy="11" r="8.4" fill="none" stroke="currentColor" stroke-width="1.7"/>',
@@ -79,6 +100,19 @@ interface PlayerShellProps {
   outroSec?: number;
   /** 用户点了「撤销」把片头退回去：父级可借此把本剧片头秒数清掉，下次不再跳 */
   onUndoIntro?: () => void;
+  /**
+   * 上一集 / 下一集。给系统媒体会话（锁屏、蓝牙耳机、Windows 媒体浮层）用：
+   * 留空则对应按钮在系统面板里不出现，而不是点了没反应。
+   */
+  onPrevEpisode?: () => void;
+  onNextEpisode?: () => void;
+  /** 上一集 / 下一集是否可用（决定要不要往系统面板挂那个按钮） */
+  hasPrevEpisode?: boolean;
+  hasNextEpisode?: boolean;
+  /** 封面图：只用于系统媒体会话（锁屏 / 通知栏）的专辑图，不参与页面渲染 */
+  posterUrl?: string;
+  /** 采集源名：写进媒体会话的「艺术家」位，换源后锁屏上能看出区别 */
+  sourceLabel?: string;
 }
 
 /**
@@ -155,7 +189,26 @@ export function PlayerShell({
   introSec = 0,
   outroSec = 0,
   onUndoIntro,
+  onPrevEpisode,
+  onNextEpisode,
+  hasPrevEpisode = false,
+  hasNextEpisode = false,
+  posterUrl,
+  sourceLabel,
 }: PlayerShellProps) {
+  /*
+   * 组件内文案统一走字典。
+   *
+   * 叫 tt 而不是 t：:542 那个 Array.find((t) => t.label === ...) 的回调参数也叫 t，
+   * 同名会让两处悄悄串味。又因为创建播放器的 useEffect 是 [] 依赖（不能重跑），
+   * 直接在 effect 里调 useT() 返回的闭包会永远停在挂载时的语言上，
+   * 所以走 ref 转发：tt 恒定指向当前语言的翻译函数。
+   */
+  const tCurrent = useT();
+  const tRef = useRef(tCurrent);
+  tRef.current = tCurrent;
+  // useCallback 空依赖：函数身份恒定，effect 里用它才不会触发 exhaustive-deps
+  const tt = useCallback((key: string, vars?: Record<string, string | number>) => tRef.current(key, vars), []);
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const artRef = useRef<any>(null);
@@ -173,12 +226,12 @@ export function PlayerShell({
   const propsRef = useRef({
     url, title, adFilter, autoplayNext,
     getRestorePosition, onTimeUpdate, onEnded, onPause, onQuality, onRequestSwitchSource,
-    introSec, outroSec, onUndoIntro,
+    introSec, outroSec, onUndoIntro, onPrevEpisode, onNextEpisode, hasPrevEpisode, hasNextEpisode, posterUrl, sourceLabel,
   });
   propsRef.current = {
     url, title, adFilter, autoplayNext,
     getRestorePosition, onTimeUpdate, onEnded, onPause, onQuality, onRequestSwitchSource,
-    introSec, outroSec, onUndoIntro,
+    introSec, outroSec, onUndoIntro, onPrevEpisode, onNextEpisode, hasPrevEpisode, hasNextEpisode, posterUrl, sourceLabel,
   };
 
   /** 上报实测画质：多次上报取大值由调用方决定，这里只管把拿到的分辨率传出去 */
@@ -243,6 +296,11 @@ export function PlayerShell({
       manifestLoadingRetryDelay: 1000,
       startLevel: -1,
       abrEwmaDefaultEstimate: 500_000,
+      // 字幕：极少数带字幕的源（EXT-X-MEDIA:TYPE=SUBTITLES）会把轨道解析进 hls.subtitleTracks。
+      // enableWebVTT 让 hls 把它们变成 <track> 交给浏览器渲染（subtitleDisplay 是实例属性不是
+      // config 项，默认就是 true，切换轨道时在 pickSubtitle 里显式再打开一次）。
+      // 采集站真实内容一条都没有，所以字幕菜单绝大多数时候只列出「载入本地字幕」这一条路。
+      enableWebVTT: true,
       appendErrorMaxRetry: 5,
       // 组合 loader：只做广告过滤（blockAd 随设置）与分片计时，不碰任何本地存储
       loader: createHlsLoader(Hls, { blockAd: p.adFilter }) as unknown as HlsConfig['loader'],
@@ -276,6 +334,27 @@ export function PlayerShell({
   // 控件在「创建播放器」那个只跑一次的 effect 里注册，闭包会永远停在首帧的 statsOpen，
   // 所以点击回调必须走 ref 转一手，才能拿到最新的 toggleStats。
   const toggleStatsRef = useRef<() => void>(() => {});
+
+  /**
+   * —— 字幕 ——
+   *
+   * 三条路径（详见 src/lib/subtitle.ts 的注释）：
+   * 1. HLS 内嵌字幕轨：hls.subtitleTracks，极少见但确实存在；
+   * 2. 浏览器原生 <track>：hls.js 挂了 subtitleDisplay 时也会走这条；
+   * 3. 用户本地 .srt/.vtt 文件：真实内容下唯一必然可用的一条。
+   *
+   * 面板用 React 渲染、portal 进 $player（和视频信息面板同一坐标系），
+   * 因为它要列出动态变化的轨道并且带一个文件选择框 —— 手写 DOM 拼这些纯属自找麻烦。
+   */
+  const [subtitleOpen, setSubtitleOpen] = useState(false);
+  const [subtitleOptions, setSubtitleOptions] = useState<SubtitleOption[]>([]);
+  const subtitleInputRef = useRef<HTMLInputElement | null>(null);
+  /** 本地字幕的 blob URL，卸载或换文件时要 revoke，否则整段字幕文本会一直留在内存里 */
+  const localTrackUrlRef = useRef<string | null>(null);
+  /** 说明为什么当前没有任何可选字幕，展示在面板里（空面板比一句解释更让人困惑） */
+  const [subtitleNote, setSubtitleNote] = useState('');
+  // 控件点击回调在只跑一次的 effect 里注册，闭包会停在首帧，必须走 ref 转一手
+  const toggleSubtitleRef = useRef<() => void>(() => {});
   /*
    * portal 目标必须在客户端渲染阶段才能确定（art.template.$player 是 Artplayer 建出来的）。
    * 用 state 而不是直接读 ref：ref 变化不触发重渲染，面板打开后关掉播放器重建会指向旧节点。
@@ -313,7 +392,12 @@ export function PlayerShell({
    * 反推。单次 getVideoPlaybackQuality 只有累计值，没有时间基线就算不出速率，
    * 所以第一次采样只记基线，第二次起才有「实测帧率」这一行。
    */
-  const collectStats = (): StatsGroup[] => {
+  /*
+   * useCallback 空依赖：内部只读 ref 与稳定的 tt，函数身份恒定。
+   * 面板的 800ms 刷新 effect 依赖它，若每次渲染都给新函数，
+   * 那个 effect 就得每帧重建 interval。
+   */
+  const collectStats = useCallback((): StatsGroup[] => {
     const art = artRef.current;
     const video = art?.video as HTMLVideoElement | undefined;
     if (!video) return [];
@@ -377,8 +461,8 @@ export function PlayerShell({
         audioCodec: level.audioCodec,
       };
     }
-    return buildStatsGroups(input);
-  };
+    return buildStatsGroups(input, tt);
+  }, [tt]);
 
   const toggleStats = () => {
     // 基线每次开关都重置：重新打开时要从「这一刻」重新算帧率，
@@ -388,16 +472,116 @@ export function PlayerShell({
       setStatsOpen(false);
       return;
     }
+    // 两个面板都在右上角同一块地方，同时打开会叠在一起
+    setSubtitleOpen(false);
     setStatsRows(collectStats());
     setStatsOpen(true);
   };
 
   toggleStatsRef.current = toggleStats;
 
+  /** 重算可选字幕列表；hls 还没建好时只报一条「源没带字幕」的说明 */
+  const refreshSubtitles = () => {
+    const hls = hlsRef.current;
+    const video = artRef.current?.video as HTMLVideoElement | undefined;
+    const options = collectSubtitleOptions(
+      hls?.subtitleTracks as { name?: string; lang?: string; title?: string }[] | undefined,
+      typeof hls?.subtitleTrack === 'number' ? hls.subtitleTrack : -1,
+      video?.textTracks as unknown as { kind?: string; label?: string; language?: string; mode?: string }[] | undefined
+    );
+    setSubtitleOptions(options);
+    // 本地挂上的轨道一定在列表里，所以「列表为空」等价于「源没带字幕且用户还没载入文件」
+    setSubtitleNote(options.length === 0 ? tt('player.subtitleNone') : '');
+  };
+
+  /** 选中/关闭某条字幕。id 由 collectSubtitleOptions 生成（hls:/native:/local:） */
+  const pickSubtitle = (id: string) => {
+    const hls = hlsRef.current;
+    const video = artRef.current?.video as HTMLVideoElement | undefined;
+    if (id === 'off') {
+      if (hls && hls.subtitleTrack >= 0) hls.subtitleTrack = -1;
+      if (video) {
+        for (const track of Array.from(video.textTracks ?? [])) {
+          if (track.kind === 'subtitles' || track.kind === 'captions') track.mode = 'disabled';
+        }
+      }
+      refreshSubtitles();
+      return;
+    }
+    const [kind, indexRaw] = id.split(':');
+    const index = Number(indexRaw);
+    if (kind === 'hls' && hls) {
+      // hls.subtitleTrack 内部会同步打开对应 <track> 的 mode；单靠我们改 mode 不算数
+      hls.subtitleTrack = index;
+      hls.subtitleDisplay = true;
+    } else if (video && Number.isFinite(index)) {
+      // 原生与本地轨道都走这里：同一时刻只允许一条在显示
+      Array.from(video.textTracks ?? []).forEach((track, i) => {
+        if (track.kind !== 'subtitles' && track.kind !== 'captions') return;
+        track.mode = i === index ? 'showing' : 'disabled';
+      });
+    }
+    refreshSubtitles();
+  };
+
+  /**
+   * 载入本地字幕文件。SRT 浏览器不认，必须先转 WebVTT 再挂成 blob URL。
+   * 只保留一条本地轨道：换文件时把旧的 <track> 摘掉并 revoke，
+   * 否则多挂几次后 <track> 列表会越来越长，菜单里全是「字幕 1/2/3」。
+   */
+  const loadLocalSubtitle = async (file: File) => {
+    const video = artRef.current?.video as HTMLVideoElement | undefined;
+    if (!video) return;
+    try {
+      const raw = await file.text();
+      const vtt = looksLikeSrt(file.name, raw.slice(0, 4096)) ? srtToVtt(raw) : raw;
+      // 清理上一条本地轨道
+      video.querySelectorAll('track[data-local-subtitle]').forEach((el) => el.remove());
+      if (localTrackUrlRef.current) {
+        URL.revokeObjectURL(localTrackUrlRef.current);
+        localTrackUrlRef.current = null;
+      }
+      const url = URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' }));
+      localTrackUrlRef.current = url;
+      const track = document.createElement('track');
+      track.kind = 'subtitles';
+      track.label = file.name.replace(/\.[^.]+$/, '');
+      track.srclang = 'zh';
+      track.src = url;
+      track.default = true;
+      track.setAttribute('data-local-subtitle', '1');
+      video.appendChild(track);
+      // <track> 是直接插进 DOM 的，浏览器要等一次加载才会把它放进 textTracks；
+      // 下一帧再刷新菜单才看得到它
+      requestAnimationFrame(() => {
+        const tracks = Array.from(video.textTracks ?? []);
+        const added = tracks.find((t) => t.label === track.label);
+        if (added) added.mode = 'showing';
+        refreshSubtitles();
+      });
+      showHint(tt('player.subtitleLoaded', { name: file.name }));
+    } catch {
+      showHint(tt('player.subtitleFailed'));
+    }
+  };
+
+  const toggleSubtitle = () => {
+    if (subtitleOpen) {
+      setSubtitleOpen(false);
+      return;
+    }
+    // 与视频信息面板互斥：两者占同一块右上角区域
+    setStatsOpen(false);
+    refreshSubtitles();
+    setSubtitleOpen(true);
+  };
+
+  toggleSubtitleRef.current = toggleSubtitle;
+
   const copyStats = async () => {
-    const text = statsToText(statsRows, propsRef.current.title);
+    const text = statsToText(statsRows, propsRef.current.title, tt);
     const ok = await copyToClipboard(text);
-    showHint(ok ? '视频信息已复制' : '复制失败，请手动选择文本');
+    showHint(ok ? tt('player.statsCopyOk') : tt('player.statsCopyFail'));
     if (ok) {
       setStatsCopied(true);
       setTimeout(() => setStatsCopied(false), 1500);
@@ -424,7 +608,7 @@ export function PlayerShell({
       setStatsRows(collectStats());
     }, 800);
     return () => clearInterval(timer);
-  }, [statsOpen]);
+  }, [statsOpen, collectStats]);
 
   const refreshQualityMenu = () => {
     const hls = hlsRef.current;
@@ -440,7 +624,7 @@ export function PlayerShell({
       const label = qualityLabel(level.height, level.width);
       return {
         index,
-        label: label || `档位 ${index + 1}`,
+        label: label || tt('player.qualityLevel', { n: index + 1 }),
         bitrate: level.bitrate,
       };
     });
@@ -500,7 +684,7 @@ export function PlayerShell({
         e.stopPropagation();
         // 单档源（采集站常态）没有可切的东西：点一下给个解释，比弹出一个只有一项的列表实在
         if (root.classList.contains('single')) {
-          showHint(`本片源只有 ${button.textContent} 一档清晰度`);
+          showHint(tt('player.qualitySingleOnly', { label: button.textContent ?? '' }));
           return;
         }
         const open = list.style.display !== 'none';
@@ -534,11 +718,11 @@ export function PlayerShell({
       '';
     menu.root.classList.toggle('single', single);
     menu.button.textContent = single
-      ? headline || '画质未知'
+      ? headline || tt('player.qualityUnknown')
       : manual < 0
-        ? `自动${headline ? ` · ${headline}` : ''}`
-        : headline || '画质';
-    menu.button.title = single ? '本片源只有一档清晰度，无法切换' : '切换清晰度';
+        ? `${tt('player.qualityAuto')}${headline ? ` · ${headline}` : ''}`
+        : headline || tt('player.quality');
+    menu.button.title = single ? tt('player.qualitySingleTip') : tt('player.qualitySwitchTip');
     // 单档时不展开下拉：列表里只有一个和按钮重复的档位，点开纯属浪费一次点击
     if (single) {
       menu.list.textContent = '';
@@ -568,7 +752,7 @@ export function PlayerShell({
       menu!.list.appendChild(item);
     };
 
-    makeItem('自动', manual < 0, () => {
+    makeItem(tt('player.qualityAuto'), manual < 0, () => {
       const self = hlsRef.current;
       if (!self) return;
       // 回到自动之前先放开手动限制，否则 hls 会继续锁在 currentLevel 上
@@ -581,7 +765,7 @@ export function PlayerShell({
         const self = hlsRef.current;
         if (!self) return;
         self.currentLevel = o.index;
-        showHint(`已切换到 ${o.label}`);
+        showHint(tt('player.qualitySwitched', { label: o.label }));
         refreshQualityMenu();
       });
     });
@@ -624,7 +808,7 @@ export function PlayerShell({
         const currentDuration = artRef.current?.duration || video.duration || duration;
         if (saved > 10 && Number.isFinite(currentDuration) && saved < currentDuration - 2) {
           if (artRef.current) artRef.current.currentTime = saved;
-          showHint(`已从 ${formatTime(saved)} 继续播放`);
+          showHint(tt('player.resumeFrom', { time: formatTime(saved) }));
         }
         restoredRef.current = true;
         restoreCleanupRef.current?.();
@@ -717,16 +901,16 @@ export function PlayerShell({
             !mediaUrl.startsWith('/api/proxy') &&
             (decision.attempt >= 2 || data.details === 'manifestLoadError')
           ) {
-            showHint('直连失败，改用代理重试...');
+            showHint(tt('player.proxyRetry'));
             setupHls(video, `/api/proxy?url=${encodeURIComponent(mediaUrl)}`, false);
             return;
           }
-          showHint(`${decision.reason}（第 ${decision.attempt} 次）...`);
+          showHint(tt('recovery.attempt', { reason: decision.reason, n: decision.attempt }));
           recovery.schedule(decision.delayMs, () => hls.startLoad());
           break;
         }
         case 'recover-media': {
-          showHint(`${decision.reason}（第 ${decision.attempt} 次）...`);
+          showHint(tt('recovery.attempt', { reason: decision.reason, n: decision.attempt }));
           if (decision.swapAudio) hls.swapAudioCodec?.();
           hls.recoverMediaError();
           break;
@@ -734,12 +918,12 @@ export function PlayerShell({
         case 'switch-source': {
           // 覆盖播放开始后的场景：起播失败走 setError 遮罩；
           // 播放中失败走回调弹换源面板（父级未提供回调时同样 setError）
-          const message = `${describeHlsError(data.type, data.details)}：${decision.reason}`;
+          const message = `${describeHlsError(data.type, data.details, tt)}：${decision.reason}`;
           if (playbackStartedRef.current) {
             showHint(message);
             propsRef.current.onRequestSwitchSource?.(decision.reason);
           } else {
-            setError(`视频加载失败，${message}，请尝试其他视频源`);
+            setError(tt('player.loadFailed', { reason: message }));
           }
           break;
         }
@@ -758,9 +942,25 @@ export function PlayerShell({
     outroFiredRef.current = false;
     setUndoIntroSec(0);
     if (undoIntroTimerRef.current) clearTimeout(undoIntroTimerRef.current);
-    recoveryRef.current = new PlaybackRecovery();
+    recoveryRef.current = new PlaybackRecovery({}, tt);
     setError('');
     setShowPoster(true);
+    /*
+     * 换集时丢掉本地字幕。手工载入的字幕文件只对应「那一集」，
+     * 带到下一集就是错位的字幕（比没有字幕更糟）。轨道内嵌在 m3u8 里的字幕不受影响 ——
+     * 那是 hls 重建后自己重新解析出来的。
+     */
+    const episodeVideo = artRef.current?.video as HTMLVideoElement | undefined;
+    if (episodeVideo) {
+      episodeVideo.querySelectorAll('track[data-local-subtitle]').forEach((el) => el.remove());
+    }
+    if (localTrackUrlRef.current) {
+      URL.revokeObjectURL(localTrackUrlRef.current);
+      localTrackUrlRef.current = null;
+    }
+    setSubtitleOptions([]);
+    setSubtitleNote('');
+    setSubtitleOpen(false);
     const art = artRef.current;
     if (!art) return;
     setupHls(art.video, targetUrl, true);
@@ -779,10 +979,13 @@ export function PlayerShell({
     introSkippedRef.current = false;
     outroFiredRef.current = false;
     setUndoIntroSec(0);
-    recoveryRef.current = new PlaybackRecovery();
+    recoveryRef.current = new PlaybackRecovery({}, tt);
     endedRef.current = false;
 
     let lastSave = 0;
+    // 媒体会话位置状态的上次推送时刻。必须与 timeupdate 里的 now 同源（Date.now），
+    // 混用 performance.now 会得到永远成立的「该推送了」，每帧都 setPositionState
+    let lastMediaState = 0;
 
     const art = new Artplayer({
       container: containerRef.current,
@@ -828,11 +1031,26 @@ export function PlayerShell({
        */
       controls: [
         {
+          /*
+           * 字幕按钮放在视频信息之前（index 14）：两者都是「播放辅助」，
+           * 挨在一起不打断播放/全屏这些高频控件。
+           * 不显示在最左：那里是播放键与时间，是控制条上最需要稳的位置。
+           */
+          name: 'subtitle',
+          position: 'right',
+          index: 14,
+          html: SUBTITLE_ICON,
+          tooltip: tt('player.subtitle'),
+          click: () => {
+            toggleSubtitleRef.current();
+          },
+        },
+        {
           name: 'videoStats',
           position: 'right',
           index: 15,
           html: VSTATS_ICON,
-          tooltip: '视频信息',
+          tooltip: tt('player.statsPanel'),
           click: () => {
             toggleStatsRef.current();
           },
@@ -1001,6 +1219,13 @@ export function PlayerShell({
     art.on('video:playing', () => {
       playbackStartedRef.current = true;
       setShowPoster(false);
+      lastMediaState = Date.now();
+      setMediaSessionState({
+        position: art.currentTime,
+        duration: art.duration,
+        playbackRate: art.video?.playbackRate,
+        paused: false,
+      });
       // 仅在媒体真正恢复（有分片进入 buffer）后清错误遮罩：
       // 否则「视频轨挂了、音频轨先播出来」时会清掉遮罩，留下黑屏假死态
       if (mediaHealthyRef.current) setError('');
@@ -1029,11 +1254,11 @@ export function PlayerShell({
       // 而不是直接钉死错误遮罩——重建后视频轨重新 append，黑屏有声即可解除
       if (!playbackStartedRef.current && !videoErrorRetryUsedRef.current) {
         videoErrorRetryUsedRef.current = true;
-        showHint('播放异常，正在重试...');
+        showHint(tt('player.retrying'));
         setupHls(art.video, currentMediaUrlRef.current, true);
         return;
       }
-      setError('视频播放失败，请尝试其他视频源');
+      setError(tt('player.playFailed'));
     });
     art.on('video:timeupdate', () => {
       const now = Date.now();
@@ -1045,7 +1270,7 @@ export function PlayerShell({
         const total = art.duration || 0;
         if (outro > 0 && total > outro + 5 && art.currentTime >= total - outro) {
           outroFiredRef.current = true;
-          showHint(`已跳过片尾 ${outro}s`);
+          showHint(tt('player.outroSkipped', { n: outro }));
           endedRef.current = true;
           propsRef.current.onEnded?.();
         }
@@ -1054,9 +1279,28 @@ export function PlayerShell({
         lastSave = now;
         propsRef.current.onTimeUpdate?.(art.currentTime, art.duration);
       }
+      // 位置状态每 5s 推一次：系统面板的进度条不需要帧级精度，
+      // 调得太勤反而在部分系统上把「拖动进度」与「播放推进」搅在一起
+      if (now - lastMediaState > 5000) {
+        lastMediaState = now;
+        setMediaSessionState({
+          position: art.currentTime,
+          duration: art.duration,
+          playbackRate: art.video?.playbackRate,
+          paused: !!art.video?.paused,
+        });
+      }
     });
     art.on('video:pause', () => {
       propsRef.current.onPause?.(art.currentTime, art.duration);
+      // 暂停要立刻同步：否则锁屏上还显示「播放中」，用户在耳机上按暂停会变成开始播放
+      lastMediaState = Date.now();
+      setMediaSessionState({
+        position: art.currentTime,
+        duration: art.duration,
+        playbackRate: art.video?.playbackRate,
+        paused: true,
+      });
     });
     art.on('video:ended', () => {
       endedRef.current = true;
@@ -1074,19 +1318,19 @@ export function PlayerShell({
       if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); return; }
       switch (e.key) {
         case 'ArrowLeft':
-          if (current.currentTime > 5) { current.currentTime -= 5; showHint('快退 5s'); e.preventDefault(); }
+          if (current.currentTime > 5) { current.currentTime -= 5; showHint(tt('player.seekBack')); e.preventDefault(); }
           break;
         case 'ArrowRight':
-          if (current.duration - current.currentTime > 5) { current.currentTime += 5; showHint('快进 5s'); e.preventDefault(); }
+          if (current.duration - current.currentTime > 5) { current.currentTime += 5; showHint(tt('player.seekForward')); e.preventDefault(); }
           break;
         case 'ArrowUp':
-          if (current.volume < 1) { current.volume = Math.min(1, current.volume + 0.1); showHint(`音量 ${Math.round(current.volume * 100)}%`); e.preventDefault(); }
+          if (current.volume < 1) { current.volume = Math.min(1, current.volume + 0.1); showHint(tt('player.volume', { n: Math.round(current.volume * 100) })); e.preventDefault(); }
           break;
         case 'ArrowDown':
-          if (current.volume > 0) { current.volume = Math.max(0, current.volume - 0.1); showHint(`音量 ${Math.round(current.volume * 100)}%`); e.preventDefault(); }
+          if (current.volume > 0) { current.volume = Math.max(0, current.volume - 0.1); showHint(tt('player.volume', { n: Math.round(current.volume * 100) })); e.preventDefault(); }
           break;
         case ' ':
-          current.toggle(); showHint('播放/暂停'); e.preventDefault();
+          current.toggle(); showHint(tt('player.playPause')); e.preventDefault();
           break;
         case 'f': case 'F':
           current.fullscreen = !current.fullscreen; e.preventDefault();
@@ -1113,7 +1357,7 @@ export function PlayerShell({
         if (art.video?.paused) return;
         art.video.playbackRate = 3.0;
         isLongPress = true;
-        showHint('3 倍速');
+        showHint(tt('player.speed3'));
       }, 500);
     };
     const onTouchEnd = () => {
@@ -1121,7 +1365,7 @@ export function PlayerShell({
       if (isLongPress) {
         art.video.playbackRate = originalRate;
         isLongPress = false;
-        showHint(`${originalRate} 倍速`);
+        showHint(tt('player.speedBack', { rate: originalRate }));
       }
     };
     const onTouchMove = (e: TouchEvent) => {
@@ -1171,6 +1415,11 @@ export function PlayerShell({
       }
       qualityMenuRef.current?.root.remove();
       qualityMenuRef.current = null;
+      // 本地字幕的 blob URL 必须显式释放：整段字幕文本挂在它上面，不 revoke 会一直留着
+      if (localTrackUrlRef.current) {
+        URL.revokeObjectURL(localTrackUrlRef.current);
+        localTrackUrlRef.current = null;
+      }
       // 面板虽然是 React 渲染的，但它挂在 $player 里；art.destroy() 会把 $player 整棵树拆掉，
       // 这里只需把内容清空，避免卸载后还有 setInterval 往已销毁的节点上写数据
       statsFrameRef.current = null;
@@ -1194,6 +1443,56 @@ export function PlayerShell({
     loadEpisode(url);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
+
+  /*
+   * —— 系统媒体会话 ——
+   * 锁屏 / Windows 媒体浮层 / 蓝牙耳机上的「正在播放」。
+   *
+   * 只绑一次：处理器内部统一读 ref，避免每次换集重绑导致系统面板闪烁。
+   * 上一集/下一集按可用性单独挂，不可用时 setActionHandler(action, null)，
+   * 否则系统面板里会出现一个按了没反应的按钮。
+   */
+  useEffect(() => {
+    if (!mediaSessionSupported()) return;
+    const seekTo = (time: number) => {
+      const art = artRef.current;
+      if (!art || !Number.isFinite(time)) return;
+      const total = art.duration || 0;
+      art.currentTime = total > 0 ? Math.min(Math.max(time, 0), total) : Math.max(time, 0);
+    };
+    bindMediaSessionHandlers({
+      play: () => { const art = artRef.current; if (art?.video?.paused) art.toggle(); },
+      pause: () => { const art = artRef.current; if (art && !art.video?.paused) art.toggle(); },
+      stop: () => { artRef.current?.pause(); },
+      seekTo,
+      seekBy: (offset) => {
+        const art = artRef.current;
+        if (!art) return;
+        seekTo((art.currentTime || 0) + offset);
+      },
+    });
+    return () => clearMediaSession();
+  }, []);
+
+  // 上一集 / 下一集：可用性变化时才重绑（系统面板据此决定显示几个按钮）
+  useEffect(() => {
+    if (!mediaSessionSupported()) return;
+    const bind = (action: MediaSessionAction, handler: (() => void) | null) => {
+      try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* 忽略 */ }
+    };
+    bind('previoustrack', hasPrevEpisode ? () => propsRef.current.onPrevEpisode?.() : null);
+    bind('nexttrack', hasNextEpisode ? () => propsRef.current.onNextEpisode?.() : null);
+  }, [hasPrevEpisode, hasNextEpisode]);
+
+  // 曲目信息：换集 / 换源都要刷新，否则锁屏上停在上一个标题
+  useEffect(() => {
+    setMediaSessionMetadata({
+      title,
+      artist: sourceLabel || '',
+      album: sourceLabel ? 'LibreTV' : undefined,
+      posterUrl,
+    });
+  }, [title, sourceLabel, posterUrl]);
 
   // —— 广告过滤开关变化：重建 HLS loader（无需重建整个播放器） ——
   const firstAdFilterRef = useRef(true);
@@ -1231,14 +1530,14 @@ export function PlayerShell({
                 className="btn-primary text-xs"
                 onClick={() => {
                   setError('');
-                  onRequestSwitchSource('播放失败');
+                  onRequestSwitchSource(tt('player.playFailed'));
                 }}
               >
-                换个源
+                {tt('player.switchSource')}
               </button>
             )}
             <button className="btn-ghost text-xs" onClick={() => location.reload()}>
-              重新加载
+              {tt('player.reload')}
             </button>
           </div>
         </div>
@@ -1252,19 +1551,24 @@ export function PlayerShell({
       {statsOpen &&
         statsPortalEl &&
         createPortal(
-          <div className="g-vstats" role="dialog" aria-label="视频信息">
+          <div className="g-vstats" role="dialog" aria-label={tt('player.statsPanel')}>
             <div className="g-vstats-head">
-              <strong>视频信息</strong>
+              <strong>{tt('player.statsPanel')}</strong>
               <button type="button" className="g-vstats-copy" onClick={() => { void copyStats(); }}>
-                {statsCopied ? '已复制' : '复制'}
+                {statsCopied ? tt('player.statsCopied') : tt('player.statsCopy')}
               </button>
-              <button type="button" className="g-vstats-x" aria-label="关闭" onClick={() => setStatsOpen(false)}>
+              <button
+                type="button"
+                className="g-vstats-x"
+                aria-label={tt('common.close')}
+                onClick={() => setStatsOpen(false)}
+              >
                 ×
               </button>
             </div>
             <div className="g-vstats-body">
               {statsRows.length === 0 ? (
-                <p className="g-vstats-empty">暂时读不到播放信息</p>
+                <p className="g-vstats-empty">{tt('player.statsEmpty')}</p>
               ) : (
                 statsRows.map((group) => (
                   <div className="g-vstats-group" key={group.title}>
@@ -1285,6 +1589,75 @@ export function PlayerShell({
           </div>,
           statsPortalEl,
         )}
+      {/* 字幕面板：与视频信息面板同一坐标系（$player），同一时刻只开一个 */}
+      {subtitleOpen &&
+        statsPortalEl &&
+        createPortal(
+          <div className="g-vstats g-subpanel" role="dialog" aria-label={tt('player.subtitle')}>
+            <div className="g-vstats-head">
+              <strong>{tt('player.subtitle')}</strong>
+              <button
+                type="button"
+                className="g-vstats-copy"
+                onClick={() => {
+                  setSubtitleOpen(false);
+                  subtitleInputRef.current?.click();
+                }}
+              >
+                {tt('player.subtitleLoad')}
+              </button>
+              <button
+                type="button"
+                className="g-vstats-x"
+                aria-label={tt('common.close')}
+                onClick={() => setSubtitleOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="g-vstats-body">
+              {subtitleNote && <p className="g-vstats-empty">{subtitleNote}</p>}
+              <div className="g-sub-list">
+                <button
+                  type="button"
+                  className={subtitleOptions.some((o) => o.active) ? 'g-sub-item' : 'g-sub-item on'}
+                  onClick={() => pickSubtitle('off')}
+                >
+                  {tt('player.subtitleOff')}
+                  {!subtitleOptions.some((o) => o.active) && <em>{tt('player.current')}</em>}
+                </button>
+                {subtitleOptions.map((option) => (
+                  <button
+                    type="button"
+                    key={option.id}
+                    className={option.active ? 'g-sub-item on' : 'g-sub-item'}
+                    onClick={() => pickSubtitle(option.id)}
+                  >
+                    {option.label}
+                    {option.lang && <em>{option.lang}</em>}
+                    {option.active && <em>{tt('player.current')}</em>}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/*
+              文件选择框放在面板里（display:none），点「载入本地字幕」触发。
+              accept 只列 .srt/.vtt：其它格式转不了，让用户在文件对话框里就被挡住比读到一半才报错好。
+            */}
+            <input
+              ref={subtitleInputRef}
+              type="file"
+              accept=".srt,.vtt,text/vtt,application/x-subrip"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) void loadLocalSubtitle(file);
+              }}
+            />
+          </div>,
+          statsPortalEl,
+        )}
       {hint && (
         <div className="absolute z-20 top-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-sm px-3 py-1.5 rounded-full pointer-events-none animate-fade-in">
           {hint}
@@ -1296,7 +1669,7 @@ export function PlayerShell({
       */}
       {undoIntroSec > 0 && (
         <div className="absolute z-20 left-4 bottom-16 flex items-center gap-2 bg-black/70 text-white text-xs px-2.5 py-1.5 rounded-full animate-fade-in">
-          <span>已跳过片头 {undoIntroSec}s</span>
+          <span>{tt('player.introSkipped', { n: undoIntroSec })}</span>
           <button
             type="button"
             className="underline decoration-dotted underline-offset-2 hover:text-white/80"
@@ -1308,7 +1681,7 @@ export function PlayerShell({
               propsRef.current.onUndoIntro?.();
             }}
           >
-            撤销
+            {tt('player.undo')}
           </button>
         </div>
       )}

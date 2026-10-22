@@ -1,4 +1,5 @@
 import { Header } from '@/components/header';
+import { LoadingNote } from '@/components/loading-note';
 
 /**
  * 路由级加载占位（Next 的 app/loading.tsx）：点进 /search、/live、/me 时先渲染它。
@@ -23,7 +24,7 @@ export default function Loading() {
             ))}
           </div>
         </div>
-        <p className="g-note mt-8">正在加载…</p>
+        <LoadingNote />
       </main>
     </div>
   );

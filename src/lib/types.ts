@@ -138,16 +138,21 @@ export interface AuthStatusResponse {
   /** 当前会话是否已验证 */
   verified: boolean;
   version: string;
-  /** 部署者通过 DEFAULT_SOURCES 环境变量预置的采集站（未配置时为空数组） */
-  defaultSources: SourceConfig[];
-  /** 部署者通过 DEFAULT_LIVE_SOURCES 环境变量预置的直播源（未配置时为空数组） */
-  defaultLiveSources: LiveSourceConfig[];
-  /** 部署者通过 DEFAULT_SUBSCRIPTIONS 环境变量预置的 SourceList 订阅链接（未配置时为空数组） */
-  defaultSubscriptions: { url: string; name?: string }[];
-  /** 部署者通过 DEFAULT_RECOMMEND_SOURCE 环境变量指定的首页推荐数据源默认值（未配置时为 null） */
-  defaultRecommendSource: 'douban' | 'bangumi' | 'hot-list' | null;
-  /** 部署者通过 DEFAULT_IMAGE_MODE 环境变量指定的封面图加载方式默认值（未配置时为 null） */
-  defaultImageMode: 'direct' | 'proxy' | null;
+  /**
+   * 以下预置字段只在**已授权**（公开实例，或配了密码且已登录）时才下发。
+   * 未登录时服务端整个省略这些键，消费方一律按「缺省即跳过」处理，
+   * 登录成功后重新拉一次 /api/status 才补齐。
+   */
+  /** 部署者通过 DEFAULT_SOURCES 环境变量预置的采集站（未配置或未授权时为 undefined） */
+  defaultSources?: SourceConfig[];
+  /** 部署者通过 DEFAULT_LIVE_SOURCES 环境变量预置的直播源（未配置或未授权时为 undefined） */
+  defaultLiveSources?: LiveSourceConfig[];
+  /** 部署者通过 DEFAULT_SUBSCRIPTIONS 环境变量预置的 SourceList 订阅链接（未配置或未授权时为 undefined） */
+  defaultSubscriptions?: { url: string; name?: string }[];
+  /** 部署者通过 DEFAULT_RECOMMEND_SOURCE 环境变量指定的首页推荐数据源默认值（未配置或未授权时为 undefined） */
+  defaultRecommendSource?: 'douban' | 'bangumi' | 'hot-list' | null;
+  /** 部署者通过 DEFAULT_IMAGE_MODE 环境变量指定的封面图加载方式默认值（未配置或未授权时为 undefined） */
+  defaultImageMode?: 'direct' | 'proxy' | null;
 }
 
 // —— 直播 / IPTV ——

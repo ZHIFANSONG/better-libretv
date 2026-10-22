@@ -16,6 +16,7 @@ import { copyToClipboard } from '@/lib/clipboard';
 import { EmptyState, ErrorState, LoadingState } from './states';
 import { useFocusTrap } from './use-focus-trap';
 import { Icon } from './icon';
+import { useT } from './lang-sync';
 
 /**
  * 详情弹窗：来源切换 + 剧集列表 + 排序 + 复制链接。
@@ -58,6 +59,7 @@ export function DetailModal({
   onPlay: (item: SearchResultItem, startIndex: number) => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const store = useAppStore();
   const { toast } = useToast();
   const [detail, setDetail] = useState<VideoDetail | null>(null);
@@ -145,7 +147,7 @@ export function DetailModal({
       name: item.sourceName,
     });
     if (!source) {
-      setError('点播源配置不存在（可能已被删除），请在设置中重新添加');
+      setError('dm.sourceMissing');
       return;
     }
     setLoading(true);
@@ -158,7 +160,7 @@ export function DetailModal({
       .then((d) => setDetail(d))
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
-        setError(err instanceof Error ? err.message : '获取详情失败');
+        setError(err instanceof Error ? err.message : 'dm.detailFailed');
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
@@ -176,6 +178,9 @@ export function DetailModal({
 
   if (!item) return null;
 
+  // error 里可能是字典 key（我们自己写的提示）也可能是源站返回的原文：非 key 时 tr 原样返回
+  const errorText = error ? (t(error) === error ? error : t(error)) : '';
+
   const episodes = detail ? (reversed ? [...detail.episodes].reverse() : detail.episodes) : [];
   const info = detail?.videoInfo;
   const groupItems = group?.items?.length ? group.items : [item];
@@ -191,18 +196,18 @@ export function DetailModal({
   const copyLinks = async () => {
     if (!detail) return;
     const ok = await copyToClipboard(detail.episodes.join('\n'));
-    if (ok) toast('播放链接已复制', 'success');
-    else toast('复制失败，请检查浏览器权限', 'error');
+    if (ok) toast(t('dm.copied'), 'success');
+    else toast(t('dm.copyFailed'), 'error');
   };
 
   const metaRows = [
-    info?.typeName && ['类型', info.typeName],
-    info?.year && ['年份', info.year],
-    info?.area && ['地区', info.area],
-    info?.director && ['导演', info.director],
-    info?.actor && ['主演', info.actor],
+    info?.typeName && [t('dm.metaType'), info.typeName],
+    info?.year && [t('dm.metaYear'), info.year],
+    info?.area && [t('dm.metaArea'), info.area],
+    info?.director && [t('dm.metaDirector'), info.director],
+    info?.actor && [t('dm.metaActor'), info.actor],
     // 备注与卡片同源，同样归一化，避免同一部剧在两处显示不同文案
-    formatRemarks(info?.remarks) && ['备注', formatRemarks(info?.remarks)!],
+    formatRemarks(info?.remarks) && [t('dm.metaRemarks'), formatRemarks(info?.remarks)!],
   ].filter(Boolean) as [string, string][];
 
   return (
@@ -221,20 +226,20 @@ export function DetailModal({
         overlay=""
         role="dialog"
         aria-modal="true"
-        aria-label={`${item.name} 详情`}
+        aria-label={t('dm.aria', { name: item.name })}
       >
         <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-line">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-content break-words">{item.name}</h2>
             <span className="text-sm text-faint">
               {item.sourceName}
-              {sourceChips.length > 1 ? ` · 共 ${sourceChips.length} 个来源` : ''}
+              {sourceChips.length > 1 ? t('dm.sourcesCount', { n: sourceChips.length }) : ''}
             </span>
           </div>
           <button
             className="p-1.5 rounded-md text-muted hover:text-content hover:bg-hover shrink-0"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={t('common.close')}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -243,16 +248,16 @@ export function DetailModal({
         </div>
 
         <div className="p-5 pt-4">
-          {loading && <LoadingState label="正在获取剧集信息..." />}
+          {loading && <LoadingState label={t('dm.loading')} />}
 
-          {!loading && error && <ErrorState message={error || '获取失败'} />}
+          {!loading && error && <ErrorState message={errorText || t('dm.failed')} />}
 
           {!loading && detail && (
             <>
               {/* 来源胶囊不依赖详情接口：详情挂了照样能换源，所以提到 loading/error 之外 */}
               {sourceChips.length > 1 && (
                 <div className="g-srcrow-wrap">
-                  <span className="g-srcrow-label">选择来源</span>
+                  <span className="g-srcrow-label">{t('dm.pickSource')}</span>
                   {sourceChips.map((it) => {
                     const active = it.sourceKey === item.sourceKey;
                     const off = isSourceDisabled(store, it.sourceKey);
@@ -266,8 +271,11 @@ export function DetailModal({
                         disabled={active}
                         title={
                           off
-                            ? `${it.sourceName}（此前连续失败已停用）`
-                            : `换成「${it.sourceName}」的资源${h?.ms != null ? ` · 上次搜索 ${h.ms}ms` : ''}`
+                            ? t('dm.offTip', { name: it.sourceName })
+                            : t('dm.switchTip', {
+                                name: it.sourceName,
+                                extra: h?.ms != null ? t('dm.switchTipExtra', { ms: h.ms }) : '',
+                              })
                         }
                         onClick={() => onSelectItem?.(it)}
                       >
@@ -321,19 +329,19 @@ export function DetailModal({
                       <button
                         className="btn-ghost btn-sm"
                         onClick={() => setReversed((v) => !v)}
-                        aria-label={reversed ? '切换为正序排列' : '切换为倒序排列'}
-                        title="调整剧集列表的排列顺序"
+                        aria-label={reversed ? t('dm.sortToAsc') : t('dm.sortToDesc')}
+                        title={t('dm.sortTip')}
                       >
                         <Icon
                           name="arrowDown"
                           className={cn('w-3.5 h-3.5 transition-transform', reversed && 'rotate-180')}
                         />
-                        {reversed ? '正序排列' : '倒序排列'}
+                        {reversed ? t('dm.sortAscLabel') : t('dm.sortDescLabel')}
                       </button>
-                      <span className="text-sm text-faint">共 {episodes.length} 集</span>
+                      <span className="text-sm text-faint">{t('dm.episodesCount', { n: episodes.length })}</span>
                     </div>
                     <button className="btn-primary btn-sm" onClick={copyLinks}>
-                      复制链接
+                      {t('dm.copy')}
                     </button>
                   </div>
                   <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2 max-h-[36vh] overflow-y-auto scrollbar-thin pr-1">
@@ -354,8 +362,8 @@ export function DetailModal({
               ) : (
                 <EmptyState
                   icon="alert"
-                  title="未找到播放资源"
-                  description="该视频可能暂时无法播放，请尝试其他视频"
+                  title={t('dm.noResource')}
+                  description={t('dm.noResourceDesc')}
                 />
               )}
             </>

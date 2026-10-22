@@ -30,6 +30,8 @@ import { useAuth } from './auth';
 import { api } from '@/lib/client-api';
 import { syncSourceSubscription } from '@/lib/subscription-sync';
 import { describeParseStats } from '@/lib/tvbox-parser';
+import { LANGUAGES, listSep, tr } from '@/lib/i18n';
+import { useLang, useT } from './lang-sync';
 
 /**
  * 设置抽屉：顶部两级导航。
@@ -39,35 +41,38 @@ import { describeParseStats } from '@/lib/tvbox-parser';
  */
 
 type PrimaryTab = 'sources' | 'prefs' | 'data';
-type SecondaryTab = 'vod' | 'live' | 'subs' | 'playback' | 'image' | 'home' | 'io';
+type SecondaryTab = 'vod' | 'live' | 'subs' | 'general' | 'playback' | 'image' | 'home' | 'io';
 
-const PRIMARY_TABS: { id: PrimaryTab; label: string; icon: IconName }[] = [
-  { id: 'sources', label: '源管理', icon: 'link' },
-  { id: 'prefs', label: '偏好设置', icon: 'gear' },
-  { id: 'data', label: '数据', icon: 'download' },
+// 导航项只存 key，文案在渲染时取：模块级常量拿不到 useT() 的语言
+const PRIMARY_TABS: { id: PrimaryTab; labelKey: string; icon: IconName }[] = [
+  { id: 'sources', labelKey: 'sm.tabSources', icon: 'link' },
+  { id: 'prefs', labelKey: 'sm.tabPrefs', icon: 'gear' },
+  { id: 'data', labelKey: 'sm.tabData', icon: 'download' },
 ];
 
-const SECONDARY_TABS: Record<PrimaryTab, { id: SecondaryTab; label: string }[]> = {
+const SECONDARY_TABS: Record<PrimaryTab, { id: SecondaryTab; labelKey: string }[]> = {
   sources: [
-    { id: 'vod', label: '点播源' },
-    { id: 'live', label: '直播源' },
-    { id: 'subs', label: '数据源订阅' },
+    { id: 'vod', labelKey: 'sm.tabVod' },
+    { id: 'live', labelKey: 'sm.tabLive' },
+    { id: 'subs', labelKey: 'sm.tabSubs' },
   ],
   prefs: [
-    { id: 'playback', label: '播放与过滤' },
-    { id: 'image', label: '封面图加载' },
-    { id: 'home', label: '首页与内容' },
+    { id: 'general', labelKey: 'sm.tabGeneral' },
+    { id: 'playback', labelKey: 'sm.tabPlayback' },
+    { id: 'image', labelKey: 'sm.tabImage' },
+    { id: 'home', labelKey: 'sm.tabHome' },
   ],
-  data: [{ id: 'io', label: '配置导入导出' }],
+  data: [{ id: 'io', labelKey: 'sm.tabIo' }],
 };
 
 const TAB_STORAGE_KEY = 'libretv-settings-tab';
 
 export function SourceManagerDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   const [primary, setPrimary] = useState<PrimaryTab>('sources');
   const [secondary, setSecondary] = useState<Record<PrimaryTab, SecondaryTab>>({
     sources: 'vod',
-    prefs: 'playback',
+    prefs: 'general',
     data: 'io',
   });
 
@@ -112,11 +117,11 @@ export function SourceManagerDrawer({ open, onClose }: { open: boolean; onClose:
     <Drawer
       open={open}
       onClose={onClose}
-      title="设置"
+      title={t('sm.title')}
       resetScrollKey={current}
       subheader={
         <div className="space-y-2">
-          <TabRow tabs={PRIMARY_TABS} value={primary} onChange={setPrimary} variant="primary" ariaLabel="设置分类" />
+          <TabRow tabs={PRIMARY_TABS} value={primary} onChange={setPrimary} variant="primary" ariaLabel={t('sm.navPrimaryAria')} />
           {/* 分组下只有一项时无需二级导航，直接展示该面板 */}
           {SECONDARY_TABS[primary].length > 1 && (
             <TabRow
@@ -124,7 +129,7 @@ export function SourceManagerDrawer({ open, onClose }: { open: boolean; onClose:
               value={current}
               onChange={(id) => setSecondary((prev) => ({ ...prev, [primary]: id }))}
               variant="secondary"
-              ariaLabel="设置项"
+              ariaLabel={t('sm.navSecondaryAria')}
             />
           )}
         </div>
@@ -132,6 +137,7 @@ export function SourceManagerDrawer({ open, onClose }: { open: boolean; onClose:
     >
       {current === 'vod' && <VodSourcesPanel />}
       {current === 'live' && <LiveSourceManager />}
+      {current === 'general' && <GeneralPanel />}
       {current === 'playback' && <PlaybackPanel />}
       {current === 'image' && <ImagePanel />}
       {current === 'home' && <HomePanel />}
@@ -149,14 +155,16 @@ function TabRow<T extends string>({
   variant,
   ariaLabel,
 }: {
-  tabs: { id: T; label: string; icon?: IconName }[];
+  tabs: { id: T; labelKey: string; icon?: IconName }[];
   value: T;
   onChange: (id: T) => void;
   variant: 'primary' | 'secondary';
   ariaLabel: string;
 }) {
+  // 形参不能叫 t：下面要用 t() 取文案
+  const t = useT();
   const move = (dir: 1 | -1) => {
-    const idx = tabs.findIndex((t) => t.id === value);
+    const idx = tabs.findIndex((tab) => tab.id === value);
     onChange(tabs[(idx + dir + tabs.length) % tabs.length].id);
   };
   return (
@@ -174,11 +182,11 @@ function TabRow<T extends string>({
         }
       }}
     >
-      {tabs.map((t) => {
-        const active = t.id === value;
+      {tabs.map((tab) => {
+        const active = tab.id === value;
         return (
           <button
-            key={t.id}
+            key={tab.id}
             role="tab"
             aria-selected={active}
             className={cn(
@@ -194,10 +202,10 @@ function TabRow<T extends string>({
                     active ? 'bg-accent/10 text-accent font-medium' : 'text-muted hover:text-content hover:bg-hover'
                   )
             )}
-            onClick={() => onChange(t.id)}
+            onClick={() => onChange(tab.id)}
           >
-            {t.icon && <Icon name={t.icon} className="w-3.5 h-3.5" />}
-            {t.label}
+            {tab.icon && <Icon name={tab.icon} className="w-3.5 h-3.5" />}
+            {t(tab.labelKey)}
           </button>
         );
       })}
@@ -210,17 +218,18 @@ function TabRow<T extends string>({
 type VodFilter = 'all' | 'enabled' | 'disabled' | 'sub' | 'manual';
 
 // 与直播源面板保持同一组筛选项与顺序：先状态（已启用 / 已停用），后来源（来自订阅 / 手动添加）
-const VOD_FILTERS: { id: VodFilter; label: string }[] = [
-  { id: 'all', label: '全部' },
-  { id: 'enabled', label: '已启用' },
-  { id: 'disabled', label: '已停用' },
-  { id: 'sub', label: '来自订阅' },
-  { id: 'manual', label: '手动添加' },
+const VOD_FILTERS: { id: VodFilter; labelKey: string }[] = [
+  { id: 'all', labelKey: 'sm.filterAll' },
+  { id: 'enabled', labelKey: 'sm.filterEnabled' },
+  { id: 'disabled', labelKey: 'sm.filterDisabled' },
+  { id: 'sub', labelKey: 'sm.filterSub' },
+  { id: 'manual', labelKey: 'sm.filterManual' },
 ];
 
 function VodSourcesPanel() {
   const store = useAppStore();
   const { toast } = useToast();
+  const t = useT();
   const [editing, setEditing] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<VodFilter>('all');
@@ -257,7 +266,7 @@ function VodSourcesPanel() {
     const eligible = filtered.filter((s) => !(s.isAdult && store.yellowFilter)).map((s) => s.key);
     const skipped = filtered.length - eligible.length;
     store.setSelectedKeys([...new Set([...store.selectedKeys, ...eligible])]);
-    if (skipped > 0) toast(`已启用 ${eligible.length} 个；${skipped} 个成人源因过滤开启被跳过`, 'info');
+    if (skipped > 0) toast(t('sm.enabledSkippedAdult', { n: eligible.length, skipped }), 'info');
   };
 
   const runAll = async () => {
@@ -267,7 +276,7 @@ function VodSourcesPanel() {
     }
     const result = await probe(filtered.map((s) => ({ key: s.key, url: s.url })));
     if (!result) return; // 被取消则无汇总
-    toast(`测活完成：${result.ok}/${result.total} 个可用`, result.ok === result.total ? 'success' : 'info');
+    toast(t('sm.probeDone', { ok: result.ok, total: result.total }), result.ok === result.total ? 'success' : 'info');
   };
 
   /** 一键恢复被自动停用的源（仅「已停用」筛选下提供） */
@@ -275,7 +284,7 @@ function VodSourcesPanel() {
     const keys = filtered.filter((s) => isSourceDisabled(store, s.key)).map((s) => s.key);
     if (keys.length === 0) return;
     keys.forEach((k) => useAppStore.getState().clearSourceHealth(k));
-    toast(`已恢复 ${keys.length} 个源`, 'success');
+    toast(t('sm.restoredCount', { n: keys.length }), 'success');
   };
 
   const empty = store.envSources.length === 0 && store.customAPIs.length === 0;
@@ -283,12 +292,16 @@ function VodSourcesPanel() {
   return (
     <section>
       <SectionTitle
-        title="点播源"
-        hint={empty ? undefined : `共 ${all.length} 个 · 已启用 ${all.filter((s) => store.selectedKeys.includes(s.key)).length}`}
+        title={t('sm.tabVod')}
+        hint={
+          empty
+            ? undefined
+            : t('sm.vodHint', { n: all.length, on: all.filter((s) => store.selectedKeys.includes(s.key)).length })
+        }
         extra={
           <button className="btn-primary btn-sm" onClick={() => setEditing('__new__')}>
             <Icon name="plus" className="w-3.5 h-3.5" />
-            添加 API
+            {t('sm.addApi')}
           </button>
         }
       />
@@ -305,18 +318,18 @@ function VodSourcesPanel() {
       {empty && editing !== '__new__' ? (
         <EmptyState
           icon="link"
-          title="还没有添加任何点播源"
-          description="添加一个 Apple CMS 采集站 API 即可开始搜索影片；也可到「数据源订阅」一次导入点播源与直播源"
+          title={t('sm.vodEmptyTitle')}
+          description={t('sm.vodEmptyDesc')}
           action={
             <button className="btn-primary btn-sm" onClick={() => setEditing('__new__')}>
-              添加第一个点播源
+              {t('sm.vodEmptyAction')}
             </button>
           }
         />
       ) : (
         <>
           <div className="space-y-2 mb-3">
-            <SearchInput value={query} onChange={setQuery} placeholder="搜索名称或地址" />
+            <SearchInput value={query} onChange={setQuery} placeholder={t('sm.searchPlaceholder')} />
             <div className="flex flex-wrap items-center gap-1">
               {VOD_FILTERS.map((f) => (
                 <button
@@ -328,26 +341,26 @@ function VodSourcesPanel() {
                   onClick={() => setFilter(f.id)}
                   aria-pressed={filter === f.id}
                 >
-                  {f.label}
+                  {t(f.labelKey)}
                 </button>
               ))}
-              <span className="ml-auto text-[11px] text-faint">显示 {filtered.length} 个</span>
+              <span className="ml-auto text-[11px] text-faint">{t('sm.showing', { n: filtered.length })}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button className="btn-ghost btn-sm" onClick={toggleAll} disabled={filtered.length === 0}>
-                {allSelected ? '全部停用' : '全部启用'}
+                {allSelected ? t('sm.disableAll') : t('sm.enableAll')}
               </button>
               <button
                 className="btn-ghost btn-sm"
                 onClick={runAll}
                 disabled={filtered.length === 0}
               >
-                {isProbing ? '取消测活' : '批量测活'}
+                {isProbing ? t('sm.probeStop') : t('sm.probeAll')}
               </button>
               {/* 查看「已停用」时提供一键恢复，省去逐个点击 */}
               {filter === 'disabled' && (
                 <button className="btn-ghost btn-sm" onClick={restoreAll} disabled={filtered.length === 0}>
-                  全部恢复
+                  {t('sm.restoreAll')}
                 </button>
               )}
             </div>
@@ -360,18 +373,18 @@ function VodSourcesPanel() {
                   />
                 </div>
                 <span className="tabular-nums shrink-0">
-                  {progress.done}/{progress.total} · 可用 {progress.ok}
-                  {formatEta(progress.done, progress.total, progress.startedAt)}
+                  {t('sm.progress', { done: progress.done, total: progress.total, ok: progress.ok })}
+                  {formatEta(progress.done, progress.total, progress.startedAt, t)}
                 </span>
                 <button className="btn-ghost btn-sm shrink-0" onClick={cancel}>
-                  取消
+                  {t('common.cancel')}
                 </button>
               </div>
             )}
           </div>
 
           {filtered.length === 0 ? (
-            <EmptyState variant="plain" title="没有符合条件的源" />
+            <EmptyState variant="plain" title={t('sm.filterEmpty')} />
           ) : (
             <ul className="space-y-2">
               {filtered.map((source) => (
@@ -407,11 +420,14 @@ function VodSourcesPanel() {
   );
 }
 
-function formatEta(done: number, total: number, startedAt: number): string {
+/** 纯函数拿不到 hook：由组件把当前语言的翻译函数传进来（与 live-channel-list 同范式） */
+type Translator = (key: string, vars?: Record<string, string | number>) => string;
+
+function formatEta(done: number, total: number, startedAt: number, t: Translator): string {
   if (done <= 0 || done >= total) return '';
   const elapsed = Date.now() - startedAt;
   const remainSec = Math.max(0, Math.round((elapsed / done) * (total - done) / 1000));
-  return remainSec > 0 ? ` · 约 ${remainSec}s` : '';
+  return remainSec > 0 ? t('sm.eta', { s: remainSec }) : '';
 }
 
 /** 单条点播源行：勾选 / 名称标签 / 健康度 / 探活 / 编辑删除（订阅源与预置源按来源限制操作） */
@@ -437,6 +453,7 @@ function VodSourceRow({
   const selected = useAppStore((s) => s.selectedKeys.includes(api.key));
   const yellowFilter = useAppStore((s) => s.yellowFilter);
   const toast = useToast().toast;
+  const t = useT();
   const fromSubscription = api.key.startsWith('sub_');
   const adultBlocked = !!api.isAdult && yellowFilter;
 
@@ -444,12 +461,12 @@ function VodSourceRow({
     const snapshot = useAppStore.getState().removeCustomApi(api.key);
     if (!snapshot) return;
     // 轻操作：不做确认弹窗，给 6 秒撤销窗口
-    toast(`已移除「${api.name}」`, 'info', {
+    toast(t('sm.removed', { name: api.name }), 'info', {
       action: {
-        label: '撤销',
+        label: t('common.undo'),
         onClick: () => {
           const ok = useAppStore.getState().restoreCustomApi(snapshot);
-          toast(ok ? '已恢复' : '恢复失败：该源位置已被重新占用', ok ? 'success' : 'warning');
+          toast(ok ? t('common.restored') : t('sm.restoreFailed'), ok ? 'success' : 'warning');
         },
       },
     });
@@ -478,8 +495,8 @@ function VodSourceRow({
           checked={selected}
           onChange={() => useAppStore.getState().toggleSourceSelected(api.key)}
           disabled={adultBlocked}
-          title={adultBlocked ? '成人内容过滤开启中，需先关闭过滤才能启用此源' : undefined}
-          aria-label={`选择 ${api.name}`}
+          title={adultBlocked ? t('sm.adultBlockedTip') : undefined}
+          aria-label={t('sm.selectAria', { name: api.name })}
         />
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-content truncate">
@@ -487,15 +504,15 @@ function VodSourceRow({
             {api.isAdult && <span className="text-pink-400 text-xs ml-1">(18+)</span>}
             {isEnv && (
               <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-chip text-faint align-middle">
-                部署者预置
+                {t('sm.envBadge')}
               </span>
             )}
             {fromSubscription && (
               <span
                 className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent align-middle"
-                title="来自数据源订阅，重新同步时此源的名称/地址会以订阅内容为准"
+                title={t('sm.subBadgeTip')}
               >
-                订阅
+                {t('sm.subBadge')}
               </span>
             )}
           </div>
@@ -505,7 +522,7 @@ function VodSourceRow({
         <TestBadge
           state={testState}
           onTest={onTest}
-          title="测试可用性（搜索耗时与结果量）"
+          title={t('sm.testTip')}
           badgeWhenOk={({ ms }) => `✓ ${ms}ms`}
         />
         {!isEnv &&
@@ -515,16 +532,16 @@ function VodSourceRow({
               <button
                 className="rounded-md p-2 text-muted/30 cursor-not-allowed shrink-0"
                 disabled
-                aria-label="订阅源不可单独编辑"
-                title="该源来自订阅，修改会在下次同步时被覆盖；请修改远端订阅后重新同步"
+                aria-label={t('sm.subEditLockedAria')}
+                title={t('sm.subEditLockedTip')}
               >
                 <Icon name="edit" className="w-4 h-4" />
               </button>
               <button
                 className="rounded-md p-2 text-muted/30 cursor-not-allowed shrink-0"
                 disabled
-                aria-label="订阅源不可单独删除"
-                title="该源来自订阅，单独删除会在下次同步时恢复；请到「数据源订阅」删除整个订阅"
+                aria-label={t('sm.subDeleteLockedAria')}
+                title={t('sm.subDeleteLockedTip')}
               >
                 <Icon name="trash" className="w-4 h-4" />
               </button>
@@ -534,16 +551,16 @@ function VodSourceRow({
               <button
                 className="rounded-md p-2 text-muted transition-colors hover:bg-hover hover:text-accent shrink-0"
                 onClick={() => onEdit(api.key)}
-                aria-label="编辑"
-                title="编辑"
+                aria-label={t('sm.edit')}
+                title={t('sm.edit')}
               >
                 <Icon name="edit" className="w-4 h-4" />
               </button>
               <button
                 className="rounded-md p-2 text-muted transition-colors hover:bg-hover hover:text-danger shrink-0"
                 onClick={remove}
-                aria-label="删除"
-                title="移除（可在提示中撤销）"
+                aria-label={t('sm.delete')}
+                title={t('sm.removeTip')}
               >
                 <Icon name="trash" className="w-4 h-4" />
               </button>
@@ -556,21 +573,45 @@ function VodSourceRow({
 
 // —— 偏好设置面板 ——
 
-function PlaybackPanel() {
-  const store = useAppStore();
+/**
+ * 通用：界面语言。放在「偏好设置」第一格，因为它是唯一一条「影响全部界面」的开关。
+ * 采集源名称、影片标题/简介不跟着翻（那是源站原文，翻了反而对不上搜索结果）。
+ */
+function GeneralPanel() {
+  const lang = useAppStore((s) => s.lang);
+  const updateSettings = useAppStore((s) => s.updateSettings);
   return (
     <section>
-      <SectionTitle title="播放与过滤" />
+      <SectionTitle title={tr(lang, 'settings.language')} hint={tr(lang, 'settings.languageHint')} />
+      <div className="space-y-2">
+        <SelectRow
+          label={tr(lang, 'settings.language')}
+          value={lang}
+          description={tr(lang, 'settings.languageHint')}
+          onChange={(v) => updateSettings({ lang: v === 'en' ? 'en' : 'zh' })}
+          options={LANGUAGES.map((l) => ({ value: l.id, label: l.label, hint: l.en }))}
+        />
+      </div>
+    </section>
+  );
+}
+
+function PlaybackPanel() {
+  const store = useAppStore();
+  const t = useT();
+  return (
+    <section>
+      <SectionTitle title={t('sm.playbackTitle')} />
       <div className="space-y-3">
         <ToggleRow
-          label="广告切片过滤"
-          description="剔除播放列表中的广告分片段落（按分片 URL 特征、片头插入与长片间超短中插识别，不动 DISCONTINUITY 时间轴）"
+          label={t('sm.adFilter')}
+          description={t('sm.adFilterDesc')}
           checked={store.adFilter}
           onChange={(v) => store.updateSettings({ adFilter: v })}
         />
         <ToggleRow
-          label="自动连播"
-          description="单集播放结束后自动播放下一集"
+          label={t('sm.autoplay')}
+          description={t('sm.autoplayDesc')}
           checked={store.autoplayNext}
           onChange={(v) => store.updateSettings({ autoplayNext: v })}
         />
@@ -580,35 +621,31 @@ function PlaybackPanel() {
         */}
         <div className="flex items-center justify-between gap-4 py-0.5">
           <div className="min-w-0">
-            <div className="text-sm text-content">默认跳过片头</div>
-            <div className="text-xs text-faint">
-              没单独设过的剧首次播放时自动跳过的秒数，默认 0 = 不跳。首集不生效。
-            </div>
+            <div className="text-sm text-content">{t('sm.skipIntro')}</div>
+            <div className="text-xs text-faint">{t('sm.skipIntroDesc')}</div>
           </div>
           <NumberField
             value={store.skipIntroSec}
             min={0}
             max={600}
             step={5}
-            unit="秒"
-            ariaLabel="默认跳过片头秒数"
+            unit={t('sm.unitSec')}
+            ariaLabel={t('sm.skipIntroAria')}
             onChange={(v) => store.updateSettings({ skipIntroSec: v })}
           />
         </div>
         <div className="flex items-center justify-between gap-4 py-0.5">
           <div className="min-w-0">
-            <div className="text-sm text-content">默认提前跳片尾</div>
-            <div className="text-xs text-faint">
-              距结尾还剩多少秒时直接算作本集结束，默认 0 = 不跳。
-            </div>
+            <div className="text-sm text-content">{t('sm.skipOutro')}</div>
+            <div className="text-xs text-faint">{t('sm.skipOutroDesc')}</div>
           </div>
           <NumberField
             value={store.skipOutroSec}
             min={0}
             max={600}
             step={5}
-            unit="秒"
-            ariaLabel="默认提前跳片尾秒数"
+            unit={t('sm.unitSec')}
+            ariaLabel={t('sm.skipOutroAria')}
             onChange={(v) => store.updateSettings({ skipOutroSec: v })}
           />
         </div>
@@ -619,25 +656,26 @@ function PlaybackPanel() {
 
 function ImagePanel() {
   const store = useAppStore();
+  const t = useT();
   const mode = store.imageProxyMode;
   const description: Record<'direct' | 'proxy' | 'custom', string> = {
-    direct: '原站直连；豆瓣封面自动换公共镜像，仍失败回退内置代理。最省服务器流量',
-    proxy: '封面优先经本站服务器转发并伪装来源，失败自动回退公共镜像/直连。最稳定，消耗服务器流量',
-    custom: '使用你填写的模板转发封面图',
+    direct: t('sm.imageDirectDesc'),
+    proxy: t('sm.imageProxyDesc'),
+    custom: t('sm.imageCustomDesc'),
   };
   return (
     <section>
-      <SectionTitle title="封面图加载" />
+      <SectionTitle title={t('sm.imageTitle')} />
       <div className="space-y-2">
         <SelectRow
-          label="加载方式"
+          label={t('sm.imageMode')}
           value={mode}
           description={description[mode]}
           onChange={(v) => store.updateSettings({ imageProxyMode: v as 'direct' | 'proxy' | 'custom' })}
           options={[
-            { value: 'direct', label: '直连优先', hint: '最省服务器流量' },
-            { value: 'proxy', label: '内置代理', hint: '最稳定' },
-            { value: 'custom', label: '自定义', hint: '自建转发模板' },
+            { value: 'direct', label: t('sm.imageDirect'), hint: t('sm.imageDirectHint') },
+            { value: 'proxy', label: t('sm.imageProxy'), hint: t('sm.imageProxyHint') },
+            { value: 'custom', label: t('sm.imageCustom'), hint: t('sm.imageCustomHint') },
           ]}
         />
         {mode === 'custom' && <CustomProxyInput />}
@@ -651,6 +689,7 @@ function ImagePanel() {
  * 直接每次按键写 store 会让全站封面 URL 重算并触发一轮图片重载（模板输入时缩略图持续闪烁）。
  */
 function CustomProxyInput() {
+  const t = useT();
   const value = useAppStore((s) => s.customImageProxy);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const [draft, setDraft] = useState(value);
@@ -667,8 +706,8 @@ function CustomProxyInput() {
   return (
     <input
       className="input w-full"
-      aria-label="自定义代理模板"
-      placeholder="代理模板，如 https://p.example.com/?url={url}"
+      aria-label={t('sm.proxyTemplateAria')}
+      placeholder={t('sm.proxyTemplatePlaceholder')}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
     />
@@ -677,30 +716,31 @@ function CustomProxyInput() {
 
 function HomePanel() {
   const store = useAppStore();
+  const t = useT();
   return (
     <section>
-      <SectionTitle title="首页与内容过滤" />
+      <SectionTitle title={t('sm.homeTitle')} />
       <div className="space-y-3">
         <ToggleRow
-          label="成人内容过滤"
-          description="过滤“伦理片”等分类的结果"
+          label={t('sm.yellowFilter')}
+          description={t('sm.yellowFilterDesc')}
           checked={store.yellowFilter}
           onChange={(v) => store.updateSettings({ yellowFilter: v })}
         />
         <ToggleRow
-          label="首页推荐"
-          description="在首页展示推荐内容"
+          label={t('sm.douban')}
+          description={t('sm.doubanDesc')}
           checked={store.doubanEnabled}
           onChange={(v) => store.updateSettings({ doubanEnabled: v })}
         />
         <SelectRow
-          label="推荐数据源"
+          label={t('sm.recommendSource')}
           value={store.recommendSource}
           onChange={(v) => store.updateSettings({ recommendSource: v as 'douban' | 'bangumi' | 'hot-list' })}
           options={[
-            { value: 'douban', label: '豆瓣', hint: '热门电影与剧集' },
-            { value: 'bangumi', label: 'Bangumi', hint: '每日新番放送（免 key）' },
-            { value: 'hot-list', label: '影视榜单', hint: '豆瓣周榜 / 百度热播' },
+            { value: 'douban', label: t('sm.recommendDouban'), hint: t('sm.recommendDoubanHint') },
+            { value: 'bangumi', label: t('sm.recommendBangumi'), hint: t('sm.recommendBangumiHint') },
+            { value: 'hot-list', label: t('sm.recommendHot'), hint: t('sm.recommendHotHint') },
           ]}
         />
       </div>
@@ -719,6 +759,8 @@ function HomePanel() {
 function SourceSubscriptions() {
   const store = useAppStore();
   const { toast } = useToast();
+  const t = useT();
+  const lang = useLang();
   const [subUrl, setSubUrl] = useState('');
   // 每个订阅独立的同步状态，允许多个订阅并行同步（此前单值状态会串台）
   const [syncing, setSyncing] = useState<Set<string>>(new Set());
@@ -730,11 +772,19 @@ function SourceSubscriptions() {
       const { vodCount, liveCount, stats } = await syncSourceSubscription(url);
       // 如实说明跳过/截断情况，避免用户疑惑「配置里站点很多，为何只导入了个位数」
       const detail = describeParseStats(stats, { includeSamples: false });
-      const formatLabel = stats?.format === 'tvbox' ? '（TVBOX 配置）' : '';
-      toast(`已同步 ${vodCount} 个点播源、${liveCount} 个直播源${formatLabel}${detail ? `；${detail}` : ''}`, 'success');
+      const formatLabel = stats?.format === 'tvbox' ? t('sm.tvboxFormat') : '';
+      toast(
+        t('sm.synced', {
+          vod: vodCount,
+          live: liveCount,
+          format: formatLabel,
+          detail: detail ? `；${detail}` : '',
+        }),
+        'success'
+      );
       setSubUrl('');
     } catch (err) {
-      toast(err instanceof Error ? err.message : '订阅同步失败', 'error');
+      toast(err instanceof Error ? err.message : t('sm.subSyncFail'), 'error');
     } finally {
       setSyncing((prev) => {
         const next = new Set(prev);
@@ -747,7 +797,7 @@ function SourceSubscriptions() {
   const addAndSync = () => {
     const url = subUrl.trim();
     if (!validateSourceUrl(url)) {
-      toast('订阅地址需以 http:// 或 https:// 开头', 'warning');
+      toast(t('sm.subUrlInvalid'), 'warning');
       return;
     }
     void sync(url);
@@ -790,7 +840,7 @@ function SourceSubscriptions() {
       .map(({ name, url, epg }) => ({ name: name || hostnameOf(url), url, epg }));
 
     if (sources.length === 0 && liveSources.length === 0) {
-      toast('没有已勾选启用的源可发布', 'warning');
+      toast(t('sm.nothingToPublish'), 'warning');
       return;
     }
 
@@ -798,9 +848,12 @@ function SourceSubscriptions() {
     try {
       const result = await api.publishSourceList({ name: 'LibreTV-SourceList', sources, liveSources });
       setPublished(result);
-      toast(`已发布 ${result.sources} 个点播源、${result.liveSources} 个直播源到 ${result.provider}`, 'success');
+      toast(
+        t('sm.published', { vod: result.sources, live: result.liveSources, provider: result.provider }),
+        'success'
+      );
     } catch (err) {
-      toast(err instanceof Error ? err.message : '发布失败', 'error');
+      toast(err instanceof Error ? err.message : t('sm.publishFail'), 'error');
     } finally {
       setPublishing(false);
     }
@@ -809,7 +862,7 @@ function SourceSubscriptions() {
   const copyPublished = () => {
     if (!published) return;
     copyToClipboard(published.url).then((ok) =>
-      ok ? toast('订阅链接已复制', 'success') : toast('复制失败，请手动选中复制', 'warning'),
+      ok ? toast(t('sm.linkCopied'), 'success') : toast(t('sm.copyFail'), 'warning'),
     );
   };
 
@@ -843,7 +896,7 @@ function SourceSubscriptions() {
     a.download = `LibreTV-SourceList_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast(`已导出 ${sources.length} 个点播源、${liveSources.length} 个直播源，托管后即可被他人订阅`, 'success');
+    toast(t('sm.exported', { vod: sources.length, live: liveSources.length }), 'success');
   };
 
   const deleteImpact = (url: string) => {
@@ -857,7 +910,7 @@ function SourceSubscriptions() {
   return (
     <section>
       <SectionTitle
-        title="数据源订阅 / 分享"
+        title={t('sm.subsTitle')}
         extra={
           <div className="flex items-center gap-1.5 shrink-0">
             <button
@@ -868,15 +921,15 @@ function SourceSubscriptions() {
                 0
               }
             >
-              导出数据源
+              {t('sm.exportSources')}
             </button>
             <button
               className="btn-ghost btn-sm"
               onClick={() => void publish()}
               disabled={publishing}
-              title="把当前已勾选启用的源上传到公开粘贴板，生成可直接订阅的链接"
+              title={t('sm.publishTip')}
             >
-              {publishing ? '发布中…' : '发布为链接'}
+              {publishing ? t('sm.publishing') : t('sm.publish')}
             </button>
           </div>
         }
@@ -890,11 +943,11 @@ function SourceSubscriptions() {
               readOnly
               value={published.url}
               className="input flex-1 min-w-0 !py-1.5 text-xs"
-              aria-label="已发布的订阅地址"
+              aria-label={t('sm.publishedAria')}
               onFocus={(e) => e.currentTarget.select()}
             />
             <button className="btn-ghost btn-sm shrink-0" onClick={copyPublished}>
-              复制
+              {t('sm.copy')}
             </button>
             <button
               className="btn-ghost btn-sm shrink-0"
@@ -903,12 +956,15 @@ function SourceSubscriptions() {
                 void sync(published.url);
               }}
             >
-              直接订阅
+              {t('sm.subscribeNow')}
             </button>
           </div>
           <p className="mt-1.5 text-[11px] text-faint leading-relaxed">
-            已发布到 {published.provider}（{published.sources} 个点播源、{published.liveSources} 个直播源）。
-            链接内容公开可读，粘贴板也可能随时清理——长期使用建议自行托管。
+            {t('sm.publishedInfo', {
+              provider: published.provider,
+              vod: published.sources,
+              live: published.liveSources,
+            })}
           </p>
         </div>
       )}
@@ -916,7 +972,7 @@ function SourceSubscriptions() {
       <div className="flex gap-2 mb-2">
         <input
           className="input flex-1 min-w-0"
-          placeholder="订阅地址（LibreTV 源列表或 TVBOX 配置的 JSON URL）"
+          placeholder={t('sm.subsPlaceholder')}
           value={subUrl}
           onChange={(e) => setSubUrl(e.target.value)}
           onKeyDown={(e) => {
@@ -928,14 +984,11 @@ function SourceSubscriptions() {
           disabled={!subUrl.trim() || syncing.size > 0}
           onClick={addAndSync}
         >
-          {syncing.size > 0 ? '同步中…' : '订阅'}
+          {syncing.size > 0 ? t('sm.syncing') : t('sm.subscribe')}
         </button>
       </div>
       {store.subscriptions.length === 0 ? (
-        <p className="text-xs text-faint">
-          一份订阅可同时下发点播源与直播源，支持 LibreTV 源列表与 TVBOX 配置（仅导入可直接使用的接口，Spider 类站点自动跳过）；
-          「导出数据源」生成的 JSON 托管到任意 URL 即可分享给他人订阅。
-        </p>
+        <p className="text-xs text-faint">{t('sm.subsEmptyHint')}</p>
       ) : (
         <ul className="space-y-2">
           {store.subscriptions.map((sub) => {
@@ -956,24 +1009,30 @@ function SourceSubscriptions() {
                     <div className="text-sm font-medium text-content truncate">{sub.name || hostnameOf(sub.url)}</div>
                     <div className="text-xs text-faint truncate">
                       {sub.url}
-                      {sub.lastSync && ` · 同步于 ${formatRelativeTime(sub.lastSync)}`}
+                      {sub.lastSync && t('sm.syncAt', { time: formatRelativeTime(sub.lastSync, lang) })}
                     </div>
                     <div className="mt-1 flex items-center gap-1 flex-wrap">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">点播 {vodCount}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">直播 {liveCount}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+                        {t('sm.subVod', { n: vodCount })}
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent">
+                        {t('sm.subLive', { n: liveCount })}
+                      </span>
                       {sub.enabled === false && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning">已停用</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/15 text-warning">
+                          {t('sm.subDisabledBadge')}
+                        </span>
                       )}
                       {sub.lastStatus === 'error' ? (
                         <span
                           className="text-[10px] px-1.5 py-0.5 rounded bg-danger/15 text-danger"
                           title={sub.lastError}
                         >
-                          上次同步失败
+                          {t('sm.lastSyncFailed')}
                         </span>
                       ) : sub.lastStatus === 'ok' && sub.lastCounts ? (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/15 text-success">
-                          上次导入 {sub.lastCounts.vod} 点播 / {sub.lastCounts.live} 直播
+                          {t('sm.lastImport', { vod: sub.lastCounts.vod, live: sub.lastCounts.live })}
                         </span>
                       ) : null}
                     </div>
@@ -984,19 +1043,15 @@ function SourceSubscriptions() {
                   <Switch
                     checked={sub.enabled !== false}
                     onChange={(v) => store.setSubscriptionEnabled(sub.url, v)}
-                    label={sub.enabled === false ? '启用该订阅' : '停用该订阅'}
-                    title={
-                      sub.enabled === false
-                        ? '当前已停用（其源不参与搜索），点击启用'
-                        : '停用后该订阅下的源暂不参与搜索；已导入的数据与各源勾选状态都保留'
-                    }
+                    label={sub.enabled === false ? t('sm.subEnable') : t('sm.subDisable')}
+                    title={sub.enabled === false ? t('sm.subEnableTip') : t('sm.subDisableTip')}
                   />
                   <button
                     className="rounded-md p-2 shrink-0 text-muted transition-colors hover:bg-hover hover:text-accent disabled:opacity-40"
                     disabled={isSyncing}
                     onClick={() => sync(sub.url)}
-                    aria-label="重新同步"
-                    title="重新同步（以远端列表为准，整体替换该订阅名下的点播源与直播源）"
+                    aria-label={t('sm.resyncAria')}
+                    title={t('sm.resyncTip')}
                   >
                     {isSyncing ? (
                       <Spinner size="sm" />
@@ -1007,8 +1062,8 @@ function SourceSubscriptions() {
                   <button
                     className="rounded-md p-2 shrink-0 text-muted transition-colors hover:bg-hover hover:text-danger"
                     onClick={() => setPendingDelete(sub.url)}
-                    aria-label="删除订阅"
-                    title="删除订阅及其导入的点播源与直播源（保留收藏的频道）"
+                    aria-label={t('sm.delSubAria')}
+                    title={t('sm.delSubTip')}
                   >
                     <Icon name="trash" className="w-4 h-4" />
                   </button>
@@ -1023,27 +1078,27 @@ function SourceSubscriptions() {
       <ConfirmDialog
         open={pendingDelete !== null}
         danger
-        title="删除该订阅？"
+        title={t('sm.delSubTitle')}
         message={
           pendingDelete
             ? (() => {
                 const impact = deleteImpact(pendingDelete);
                 const parts: string[] = [];
-                if (impact.vod > 0) parts.push(`${impact.vod} 个点播源`);
-                if (impact.live > 0) parts.push(`${impact.live} 个直播源`);
+                if (impact.vod > 0) parts.push(t('sm.summaryVod', { n: impact.vod }));
+                if (impact.live > 0) parts.push(t('sm.summaryLive', { n: impact.live }));
                 return parts.length > 0
-                  ? `将同时删除该订阅导入的 ${parts.join(' 与 ')}；你收藏的频道会保留。`
-                  : '该订阅当前未导入任何源，删除后不影响其他数据。';
+                  ? t('sm.delSubImpact', { parts: parts.join(t('sm.and')) })
+                  : t('sm.delSubNoImpact');
               })()
             : undefined
         }
-        confirmLabel="删除订阅"
+        confirmLabel={t('sm.delSubConfirm')}
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => {
           const url = pendingDelete;
           if (url) useAppStore.getState().removeSubscription(url);
           setPendingDelete(null);
-          toast('订阅已删除', 'success');
+          toast(t('sm.subDeleted'), 'success');
         }}
       />
     </section>
@@ -1052,6 +1107,8 @@ function SourceSubscriptions() {
 
 /** 配置导入导出（导出受登录门控；导入前先解析预览再确认，避免误覆盖） */
 function ConfigIoPanel() {
+  const t = useT();
+  const lang = useLang();
   const { toast } = useToast();
   const { verified, openLogin } = useAuth();
   const [pending, setPending] = useState<{ file: File; summary: string } | null>(null);
@@ -1070,18 +1127,18 @@ function ConfigIoPanel() {
       a.download = `LibreTV-Settings_${Date.now()}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast('配置已导出', 'success');
+      toast(t('sm.configExported'), 'success');
     } catch {
-      toast('导出失败', 'error');
+      toast(t('sm.exportFail'), 'error');
     }
   };
 
   const pickImport = async (file: File) => {
     try {
-      const summary = summarizeConfig(await file.text());
+      const summary = summarizeConfig(await file.text(), t, listSep(lang));
       setPending({ file, summary });
     } catch (err) {
-      toast(err instanceof Error ? err.message : '导入失败', 'error');
+      toast(err instanceof Error ? err.message : t('sm.importFail'), 'error');
     }
   };
 
@@ -1090,22 +1147,22 @@ function ConfigIoPanel() {
     try {
       await importConfig(await pending.file.text());
       setPending(null);
-      toast('配置导入成功，即将刷新页面', 'success');
+      toast(t('sm.importOk'), 'success');
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
-      toast(err instanceof Error ? err.message : '导入失败', 'error');
+      toast(err instanceof Error ? err.message : t('sm.importFail'), 'error');
     }
   };
 
   return (
     <section>
-      <SectionTitle title="配置导入导出" hint="导出/导入包含数据源、订阅与偏好设置的整机配置" />
+      <SectionTitle title={t('sm.ioTitle')} hint={t('sm.ioHint')} />
       <div className="flex gap-2">
         <button className="btn-ghost flex-1 text-xs" onClick={doExport}>
-          导出配置
+          {t('sm.exportConfig')}
         </button>
         <label className="btn-ghost flex-1 text-xs cursor-pointer">
-          导入配置
+          {t('sm.importConfig')}
           <input
             type="file"
             accept=".json,application/json"
@@ -1123,9 +1180,9 @@ function ConfigIoPanel() {
       <ConfirmDialog
         open={pending !== null}
         danger
-        title="导入配置并覆盖当前数据？"
-        message={pending ? `${pending.summary}。导入后将立即刷新页面，当前设备上的配置与观看历史会被覆盖。` : undefined}
-        confirmLabel="导入并覆盖"
+        title={t('sm.importTitle')}
+        message={pending ? t('sm.importMessage', { summary: pending.summary }) : undefined}
+        confirmLabel={t('sm.importConfirm')}
         onCancel={() => setPending(null)}
         onConfirm={confirmImport}
       />
@@ -1134,14 +1191,14 @@ function ConfigIoPanel() {
 }
 
 /** 解析配置文件概要（宽松，仅用于导入前预览） */
-function summarizeConfig(text: string): string {
+function summarizeConfig(text: string, t: Translator, sep: string): string {
   let cfg: { name?: string; data?: Record<string, unknown> };
   try {
     cfg = JSON.parse(text) as { name?: string; data?: Record<string, unknown> };
   } catch {
-    throw new Error('文件不是合法的 JSON');
+    throw new Error(t('sm.badJson'));
   }
-  if (cfg.name !== 'LibreTV-Settings') throw new Error('不是 LibreTV 的配置文件');
+  if (cfg.name !== 'LibreTV-Settings') throw new Error(t('sm.badConfig'));
 
   const parts: string[] = [];
   const settingsRaw = cfg.data?.[PERSIST_KEY];
@@ -1151,7 +1208,11 @@ function summarizeConfig(text: string): string {
       const vod = Array.isArray(state.customAPIs) ? state.customAPIs.length : 0;
       const live = Array.isArray(state.liveSubscriptions) ? state.liveSubscriptions.length : 0;
       const subs = Array.isArray(state.subscriptions) ? state.subscriptions.length : 0;
-      parts.push(`${vod} 个点播源`, `${live} 个直播源`, `${subs} 个订阅`);
+      parts.push(
+        t('sm.summaryVod', { n: vod }),
+        t('sm.summaryLive', { n: live }),
+        t('sm.summarySubs', { n: subs })
+      );
     } catch {
       /* 设置片段损坏时忽略该部分统计 */
     }
@@ -1160,12 +1221,12 @@ function summarizeConfig(text: string): string {
   if (typeof historyRaw === 'string') {
     try {
       const h = JSON.parse(historyRaw);
-      if (Array.isArray(h)) parts.push(`${h.length} 条观看历史`);
+      if (Array.isArray(h)) parts.push(t('sm.summaryHistory', { n: h.length }));
     } catch {
       /* 忽略 */
     }
   }
-  return parts.length > 0 ? `该文件包含 ${parts.join('、')}` : '该文件未包含可导入的数据';
+  return parts.length > 0 ? t('sm.summaryPrefix', { items: parts.join(sep) }) : t('sm.summaryEmpty');
 }
 
 function SourceForm({
@@ -1184,6 +1245,7 @@ function SourceForm({
   const [detail, setDetail] = useState(initial?.detail ?? '');
   const [isAdult, setIsAdult] = useState(initial?.isAdult ?? false);
   const { toast } = useToast();
+  const t = useT();
 
   useEffect(() => {
     if (visible) {
@@ -1200,11 +1262,11 @@ function SourceForm({
     const n = name.trim();
     const u = url.trim().replace(/\/+$/, '');
     if (!n || !u) {
-      toast('请输入 API 名称和链接', 'warning');
+      toast(t('sm.needNameUrl'), 'warning');
       return;
     }
     if (!validateSourceUrl(u)) {
-      toast('API 链接需以 http:// 或 https:// 开头', 'warning');
+      toast(t('sm.badUrl'), 'warning');
       return;
     }
     onSubmit({ name: n, url: u, detail: detail.trim() || undefined, isAdult });
@@ -1214,22 +1276,22 @@ function SourceForm({
     <div className="space-y-2 border border-line rounded-lg p-3 bg-chip mb-2">
     <input
       className="input w-full"
-      aria-label="点播源名称"
-      placeholder="名称"
+      aria-label={t('sm.nameAria')}
+      placeholder={t('sm.namePlaceholder')}
       value={name}
       onChange={(e) => setName(e.target.value)}
     />
     <input
       className="input w-full"
-      aria-label="API 地址"
-      placeholder="API 地址，如 https://example.com/api.php/provide/vod"
+      aria-label={t('sm.urlAria')}
+      placeholder={t('sm.urlPlaceholder')}
       value={url}
       onChange={(e) => setUrl(e.target.value)}
     />
     <input
       className="input w-full"
-      aria-label="详情页地址（可选）"
-      placeholder="详情页地址（可选），如 https://example.com"
+      aria-label={t('sm.detailAria')}
+      placeholder={t('sm.detailPlaceholder')}
       value={detail}
       onChange={(e) => setDetail(e.target.value)}
     />
@@ -1240,14 +1302,14 @@ function SourceForm({
           checked={isAdult}
           onChange={(e) => setIsAdult(e.target.checked)}
         />
-        标记为成人内容源（受成人过滤控制）
+        {t('sm.adultMark')}
       </label>
       <div className="flex gap-2 justify-end">
         <button className="btn-ghost btn-sm" onClick={onCancel}>
-          取消
+          {t('common.cancel')}
         </button>
         <button className="btn-primary btn-sm" onClick={submit}>
-          {initial ? '更新' : '添加'}
+          {initial ? t('sm.update') : t('sm.add')}
         </button>
       </div>
     </div>

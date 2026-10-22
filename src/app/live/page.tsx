@@ -23,6 +23,8 @@ import { useAuth } from '@/components/auth';
 import { allLiveSources, useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { SmartImage } from '@/components/smart-image';
+import { useLang, useT } from '@/components/lang-sync';
+import { tr } from '@/lib/i18n';
 
 /**
  * 直播页：左侧播放器 + 频道信息 + 节目单；右侧频道侧栏。
@@ -39,6 +41,9 @@ export default function LivePage() {
 }
 
 function LiveContent() {
+  const t = useT();
+  // useMemo 里直接用 t 会把它写进依赖（每次渲染都变）或捕获旧语言；这里只取 lang 走纯函数 tr
+  const lang = useLang();
   const searchParams = useSearchParams();
   const router = useRouter();
   // 精确订阅所需字段：任何其他 store 变化（如测活写回）不应触发本组件重渲染
@@ -107,12 +112,12 @@ function LiveContent() {
     return {
       id: searchParams.get('tvgId') || currentUrl,
       url: currentUrl,
-      name: searchParams.get('name') || '未知频道',
+      name: searchParams.get('name') || tr(lang, 'live.unknownChannel'),
       group: searchParams.get('group') || undefined,
       tvgId: searchParams.get('tvgId') || undefined,
       epg: searchParams.get('epg') || undefined,
     } as LiveChannelItem;
-  }, [channels, currentUrl, searchParams]);
+  }, [channels, currentUrl, searchParams, lang]);
 
   useEffect(() => {
     setLogoFailed(false);
@@ -209,7 +214,7 @@ function LiveContent() {
       <div className="g-shell min-h-screen flex flex-col">
         <Header />
         <main className="g-page flex-1 flex items-center justify-center">
-          <p className="text-faint text-sm">等待访问验证...</p>
+          <p className="text-faint text-sm">{t('live.waitAuth')}</p>
         </main>
       </div>
     );
@@ -230,7 +235,7 @@ function LiveContent() {
               {currentUrl ? (
                 <LivePlayer
                   url={currentUrl}
-                  title={currentChannel?.name || '直播'}
+                  title={currentChannel?.name || t('live.defaultTitle')}
                   onPrevChannel={goPrevChannel}
                   onNextChannel={goNextChannel}
                 />
@@ -240,11 +245,11 @@ function LiveContent() {
                   <p className="text-white/60 text-sm">
                     {sources.length === 0
                       ? liveEnvSources.length + liveSubscriptions.length > 0
-                        ? '所有直播源均已停用，请在设置中勾选启用'
-                        : '请先在设置中添加直播源（M3U 订阅）'
+                        ? t('live.noSourceDisabled')
+                        : t('live.noSourceAdd')
                       : playlistsQuery.isLoading
-                        ? '频道列表加载中...'
-                        : '从右侧选择一个频道开始观看'}
+                        ? t('live.loadingChannels')
+                        : t('live.pickChannel')}
                   </p>
                 </div>
               )}
@@ -278,28 +283,28 @@ function LiveContent() {
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     className={cn('g-act ic', !lastChannelRef.current && 'opacity-40 cursor-default')}
-                    aria-label="上一个频道"
-                    title={lastChannelRef.current ? `上一个频道：${lastChannelRef.current.name}（Backspace）` : '暂无上一个频道'}
+                    aria-label={t('live.prevChannelAria')}
+                    title={lastChannelRef.current ? t('live.prevChannelTip', { name: lastChannelRef.current.name }) : t('live.noPrevChannel')}
                     onClick={backToPrevChannel}
                   >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 15L4 10l5-5m-5 5h10.5a5.5 5.5 0 015.5 5.5V17" />
                   </svg>
                 </button>
-                  <button className="g-act ic" aria-label="上一台" title="上一台（↑）" onClick={goPrevChannel}>
+                  <button className="g-act ic" aria-label={t('live.prevChannel')} title={t('live.prevChannelTipShort')} onClick={goPrevChannel}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
                   </svg>
                 </button>
-                  <button className="g-act ic" aria-label="下一台" title="下一台（↓）" onClick={goNextChannel}>
+                  <button className="g-act ic" aria-label={t('live.nextChannel')} title={t('live.nextChannelTipShort')} onClick={goNextChannel}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                   </svg>
                 </button>
                   <button
                     className={cn('g-act ic', isFavorite && 'text-warning')}
-                    aria-label={isFavorite ? '取消收藏' : '收藏'}
-                    title={isFavorite ? '取消收藏' : '收藏'}
+                    aria-label={isFavorite ? t('live.unfav') : t('live.fav')}
+                    title={isFavorite ? t('live.unfav') : t('live.fav')}
                     onClick={() => useAppStore.getState().toggleLiveFavorite(currentChannel.url)}
                   >
                     <svg className="w-4 h-4" fill={isFavorite ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
@@ -308,8 +313,8 @@ function LiveContent() {
                   </button>
                   <button
                     className="g-act ic"
-                    aria-label="复制播放地址"
-                    title="复制播放地址"
+                    aria-label={t('live.copyUrl')}
+                    title={t('live.copyUrl')}
                     onClick={async () => {
                       const ok = await copyToClipboard(currentChannel.url);
                       if (ok) {
@@ -318,7 +323,7 @@ function LiveContent() {
                       }
                     }}
                   >
-                    {copied ? <span className="text-[10px] text-success">已复制</span> : (
+                    {copied ? <span className="text-[10px] text-success">{t('live.copied')}</span> : (
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3" />
                     </svg>
@@ -332,7 +337,7 @@ function LiveContent() {
             {currentChannel && (
               <section className="g-card g-panel" glass="frosted" glass-blur="16">
                 <h4>
-                  节目单 <em>epg</em>
+                  {t('live.epgTitle')} <em>epg</em>
                 </h4>
                 <LiveEpgPanel epgUrl={currentChannel.epg} tvgId={currentChannel.tvgId} />
               </section>
@@ -361,10 +366,10 @@ function LiveContent() {
           >
             {/* 抽屉把手栏（仅移动端） */}
             <div className="flex items-center justify-between px-3 pt-3 pb-1 shrink-0 lg:hidden">
-              <span className="g-drawer-title">频道列表</span>
+              <span className="g-drawer-title">{t('live.channelList')}</span>
               <button
                 className="g-act ic"
-                aria-label="关闭频道列表"
+                aria-label={t('live.closeList')}
                 onClick={() => setListOpen(false)}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -390,9 +395,9 @@ function LiveContent() {
                 <p className="text-[10px] text-faint px-3 py-1.5 border-t border-line shrink-0">
                   {sources.length === 0
                     ? liveEnvSources.length + liveSubscriptions.length > 0
-                      ? '所有直播源均已停用，请在设置中勾选启用'
-                      : '暂无直播源，请在设置 → 直播源中添加'
-                    : `${failedCount > 0 ? `${failedCount} 个订阅拉取失败 · ` : ''}共 ${sources.length} 个已启用源`}
+                      ? t('live.noSourceDisabled')
+                      : t('live.noSourceHint')
+                    : `${failedCount > 0 ? t('live.failedSubs', { n: failedCount }) : ''}${t('live.enabledSources', { n: sources.length })}`}
                 </p>
               )}
             </div>
@@ -413,7 +418,7 @@ function LiveContent() {
                 d="M4 6h16M4 12h16M4 18h16"
               />
             </svg>
-            频道
+            {t('live.fab')}
           </button>
         )}
       </main>

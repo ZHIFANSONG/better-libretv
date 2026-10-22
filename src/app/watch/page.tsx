@@ -20,14 +20,18 @@ import { SwitchSourceModal } from '@/components/switch-source';
 import type { SourceCandidate } from '@/lib/source-switch';
 import { SourceSwitchCard } from '@/components/source-switch-card';
 import { SkipConfigButton } from '@/components/skip-config';
+import { EpisodeGrid } from '@/components/episode-grid';
 import { enqueueDownload } from '@/components/download-manager';
 import { plainText } from '@/components/detail-modal';
 import { Icon } from '@/components/icon';
+import { useToast } from '@/components/toast';
 import { Header } from '@/components/header';
 import { SiteFooter } from '@/components/site-footer';
 import { useAuth } from '@/components/auth';
-import { resolveSource, useAppStore } from '@/lib/store';
+import { useT } from '@/components/lang-sync';
+import { resolveSource, useAppStore, vodFavoriteKey } from '@/lib/store';
 import { qualityKey } from '@/lib/quality';
+import { prefetchEpisode } from '@/lib/next-episode-prefetch';
 import {
   clearProgress,
   progressKeyOf,
@@ -59,6 +63,8 @@ function WatchContent() {
   const router = useRouter();
   const store = useAppStore();
   const { verified } = useAuth();
+  const { toast } = useToast();
+  const t = useT();
 
   const sourceKey = searchParams.get('source') || '';
   const vodId = searchParams.get('id') || '';
@@ -96,7 +102,7 @@ function WatchContent() {
   const episodes = useMemo(() => detailQuery.data?.episodes ?? [], [detailQuery.data]);
   // 简介是第三方源的 HTML 片段，转纯文本再判断长度（<p> 标签本身也算字符，不转会误判）
   const descText = useMemo(() => (videoInfo?.desc ? plainText(videoInfo.desc) : ''), [videoInfo?.desc]);
-  const videoTitle = titleParam || videoInfo?.title || '未知视频';
+  const videoTitle = titleParam || videoInfo?.title || t('watch.unknownVideo');
 
   // 当前播放地址：优先取剧集列表中的当前集，其次直连 URL 参数
   const currentUrl = useMemo(() => {
@@ -177,6 +183,11 @@ function WatchContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verified, sourceKey, vodId, currentIndex, videoTitle, currentUrl]);
 
+  // 下一集预取：本集看到一定程度就把下一集的清单 + 首片灌进浏览器 HTTP 缓存，
+  // 换集时「点下去 → 首帧」那段空窗几乎消失。每集只预取一次。
+  const prefetchAbort = useRef<(() => void) | null>(null);
+  const prefetchedIndex = useRef(-1);
+
   // 播放中与暂停时的进度落盘逻辑一致，共用同一回调
   const handleProgress = useCallback(
     (position: number, duration: number) => {
@@ -184,9 +195,23 @@ function WatchContent() {
         saveProgress(sourceKey, vodId, currentIndex, position, duration).catch(() => {});
         updateHistoryProgress(sourceKey, vodId || currentUrl, position, duration).catch(() => {});
       }
+      // 阈值取「60 秒或本集时长的 20%，取小者」：长片不至于等太久，短剧也不会一起播就抢带宽。
+      // 太早预取会和起播缓冲抢带宽，太晚就等于没预取。
+      const threshold = duration > 0 ? Math.min(60, duration * 0.2) : 60;
+      if (position > threshold && prefetchedIndex.current !== currentIndex) {
+        prefetchedIndex.current = currentIndex;
+        prefetchAbort.current?.();
+        prefetchAbort.current = prefetchEpisode(episodes[currentIndex + 1]);
+      }
     },
-    [sourceKey, vodId, currentIndex, currentUrl]
+    [sourceKey, vodId, currentIndex, currentUrl, episodes]
   );
+
+  // 换集/卸载时收掉上一集的预取，别让它在后台继续抢带宽
+  useEffect(() => () => {
+    prefetchAbort.current?.();
+    prefetchAbort.current = null;
+  }, [currentIndex]);
 
   // 跳过片头/片尾：写本剧配置（只落本地 IndexedDB），并立即生效
   const handleApplySkip = useCallback(
@@ -240,27 +265,43 @@ function WatchContent() {
     return () => document.removeEventListener('keydown', handler);
   }, [currentIndex, episodes.length, goEpisode]);
 
-  const orderedEpisodes = reversed ? [...episodes].map((_, i) => episodes.length - 1 - i) : episodes.map((_, i) => i);
   const hasNext = episodes.length > 0 && currentIndex < episodes.length - 1;
+  const hasPrev = episodes.length > 0 && currentIndex > 0;
+
+  // 追剧收藏：没有 vodId 的纯直连分享链接不提供收藏（收藏靠 sourceKey+vodId 定位，没有 id 存了也回不来）
+  const favorited = Boolean(
+    vodId && store.vodFavorites.some((f) => vodFavoriteKey(f.sourceKey, f.vodId) === vodFavoriteKey(sourceKey || '', vodId))
+  );
+  const toggleFavorite = useCallback(() => {
+    if (!vodId) return;
+    const nowFav = store.toggleVodFavorite({
+      sourceKey: sourceKey || '',
+      vodId,
+      title: videoTitle,
+      pic: detailQuery.data?.videoInfo?.cover,
+      totalEpisodes: episodes.length || undefined,
+    });
+    toast(nowFav ? t('watch.favAdded', { title: videoTitle }) : t('watch.favRemoved'), nowFav ? 'success' : 'info');
+  }, [vodId, sourceKey, videoTitle, episodes.length, store, detailQuery.data, toast, t]);
 
   // 下载本集：多集才带集数后缀；单集影片（含电影）文件名就是纯标题
   const handleDownload = useCallback(() => {
     if (!currentUrl) return;
     enqueueDownload({
       url: currentUrl,
-      title: `${videoTitle}${episodes.length > 1 ? ` 第${currentIndex + 1}集` : ''}`,
+      title: episodes.length > 1 ? t('watch.downloadName', { title: videoTitle, n: currentIndex + 1 }) : videoTitle,
       format: 'MP4',
     });
     // 「已加入下载队列」由 DownloadManager 在真正入队后提示：
     // 这里先提示的话，用户随后取消保存位置会出现「已加入→已取消」的矛盾
-  }, [currentUrl, videoTitle, episodes.length, currentIndex]);
+  }, [currentUrl, videoTitle, episodes.length, currentIndex, t]);
 
   if (!verified) {
     return (
       <div className="g-shell min-h-screen flex flex-col">
         <Header />
         <main className="g-page flex-1 flex items-center justify-center">
-          <p className="text-faint text-sm">等待访问验证...</p>
+          <p className="text-faint text-sm">{t('watch.waitingAuth')}</p>
         </main>
       </div>
     );
@@ -272,11 +313,11 @@ function WatchContent() {
         <Header />
         <main className="g-page flex-1 flex items-center justify-center">
           <div className="text-center max-w-md">
-            <h1 className="text-content font-medium mb-2">点播源不存在</h1>
+            <h1 className="text-content font-medium mb-2">{t('watch.sourceMissing')}</h1>
             <p className="text-sm text-muted mb-4">
-              该视频来自点播源「{sourceKey}」，但它可能已被删除。请在设置中重新添加后重试。
+              {t('watch.sourceGone', { name: sourceKey })}
             </p>
-            <Link href="/" className="g-act pri">返回首页</Link>
+            <Link href="/" className="g-act pri">{t('watch.backHome')}</Link>
           </div>
         </main>
       </div>
@@ -297,6 +338,8 @@ function WatchContent() {
             {/* 舞台：16:9 圆角，与提案稿一致 */}
             <div className="g-stage">
               {currentUrl ? (
+                // hasPrev/hasNext + onPrev/onNext 是系统媒体会话（锁屏、耳机线控）用的：
+                // 不可用时对应按钮在系统面板里不出现，而不是点了没反应
                 <PlayerShell
                   url={currentUrl}
                   title={videoTitle}
@@ -318,6 +361,12 @@ function WatchContent() {
                   outroSec={outroSec}
                   onUndoIntro={handleUndoIntro}
                   onRequestSwitchSource={() => setFailedSignal((n) => n + 1)}
+                  hasPrevEpisode={hasPrev}
+                  hasNextEpisode={hasNext}
+                  onPrevEpisode={() => goEpisode(currentIndex - 1)}
+                  onNextEpisode={() => goEpisode(currentIndex + 1)}
+                  posterUrl={detailQuery.data?.videoInfo?.cover}
+                  sourceLabel={source?.name}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
@@ -325,7 +374,7 @@ function WatchContent() {
                     <Spinner size="lg" />
                   ) : (
                     <p className="text-faint text-sm">
-                      {detailQuery.isError ? '视频加载失败，请尝试其他资源' : '无可用播放地址'}
+                      {detailQuery.isError ? t('watch.loadFailed') : t('watch.noPlayable')}
                     </p>
                   )}
                 </div>
@@ -336,9 +385,7 @@ function WatchContent() {
             <h1 className="g-watch-title">
               {videoTitle}
               {episodes.length > 0 && (
-                <s>
-                  第 {currentIndex + 1}/{episodes.length} 集
-                </s>
+                <s>{t('watch.episodeOf', { n: currentIndex + 1, total: episodes.length })}</s>
               )}
             </h1>
 
@@ -351,13 +398,13 @@ function WatchContent() {
               <div className="g-sub">
                 {/* 源名链回搜索结果：想换别的源，点它就能比一比 */}
                 <span>
-                  <Link href={`/search?q=${encodeURIComponent(videoTitle)}`} title="用这个片名去搜索其它源">
+                  <Link href={`/search?q=${encodeURIComponent(videoTitle)}`} title={t('watch.searchOther')}>
                     {source.name}
                   </Link>
                 </span>
                 {videoInfo?.typeName && <span>{videoInfo.typeName}</span>}
                 {videoInfo?.area && <span>{videoInfo.area}</span>}
-                {videoInfo?.director && <span>导演 {videoInfo.director}</span>}
+                {videoInfo?.director && <span>{t('watch.director', { name: videoInfo.director })}</span>}
                 {/* 集数不再在这里重复：上面 g-tags 有「全 N 集」，标题行有「第 x/N 集」，
                     右侧选集卡也写着 N 集 —— 第四遍没有任何新信息 */}
               </div>
@@ -371,7 +418,7 @@ function WatchContent() {
                   className="g-desc-toggle"
                   onClick={() => setDescOpen((v) => !v)}
                 >
-                  {descOpen ? '收起简介' : '展开简介'}
+                  {descOpen ? t('watch.collapseDesc') : t('watch.expandDesc')}
                 </button>
               )}
 
@@ -381,19 +428,37 @@ function WatchContent() {
                   disabled={currentIndex <= 0}
                   onClick={() => goEpisode(currentIndex - 1)}
                 >
-                  上一集
+                  {t('watch.prevEpisode')}
                 </button>
                 <button
                   className="g-act"
                   disabled={!hasNext}
                   onClick={() => goEpisode(currentIndex + 1)}
                 >
-                  下一集
+                  {t('watch.nextEpisode')}
                 </button>
                 {/* 下载并入集数操作行：它按集工作，跟上一集/下一集是同一类动作，
                     单独挂在顶部「次级条」里只会让那一条空出一大半宽度 */}
                 <button className="g-act" onClick={handleDownload} disabled={!currentUrl}>
-                  下载本集
+                  {t('watch.downloadEpisode')}
+                </button>
+                {/* 追剧：与上一集/下一集同属「这部片」的操作，放同一行；
+                    没有 vodId 的直连链接收藏了也回不来，直接禁用而不是隐藏（保持按钮位置稳定） */}
+                <button
+                  className={cn('g-act', favorited && 'on')}
+                  onClick={toggleFavorite}
+                  disabled={!vodId}
+                  aria-pressed={favorited}
+                  title={
+                    vodId
+                      ? favorited
+                        ? t('watch.favRemoveTip')
+                        : t('watch.favAddTip')
+                      : t('watch.favNoIdTip')
+                  }
+                >
+                  <Icon name="heart" className={cn('w-3.5 h-3.5', favorited && 'fill-current')} />
+                  {favorited ? t('watch.favorited') : t('watch.favorite')}
                 </button>
                 <label className="g-act">
                   <input
@@ -402,7 +467,7 @@ function WatchContent() {
                     checked={store.autoplayNext}
                     onChange={(e) => store.updateSettings({ autoplayNext: e.target.checked })}
                   />
-                  自动连播
+                  {t('watch.autoplay')}
                 </label>
                 {/* 跳过片头/片尾：值按「源+剧」存在本地，改一次本剧全部剧集生效 */}
                 <SkipConfigButton
@@ -410,7 +475,7 @@ function WatchContent() {
                   outroSec={outroSec}
                   hasOverride={skipOverride !== null}
                   introDisabledHint={
-                    currentIndex === 0 ? '当前是第 1 集，片头跳过对首集不生效（首集常是预告/花絮）。' : undefined
+                    currentIndex === 0 ? t('skip.firstEp') : undefined
                   }
                   onApply={handleApplySkip}
                   onReset={handleResetSkip}
@@ -434,40 +499,44 @@ function WatchContent() {
 
             <div className="g-card g-panel" glass="frosted" glass-blur="16">
               <h4>
-                选集
+                {t('watch.episodesTitle')}
                 {episodes.length > 1 && (
                   <button
                     className="g-act"
                     onClick={() => setReversed((v) => !v)}
-                    aria-label={reversed ? '切换为正序排列' : '切换为倒序排列'}
-                    title="调整剧集列表的排列顺序"
+                    aria-label={reversed ? t('watch.sortAsc') : t('watch.sortDesc')}
+                    title={t('watch.sortTip')}
                   >
                     <Icon
                       name="arrowDown"
                       className={cn('w-3.5 h-3.5 transition-transform', reversed && 'rotate-180')}
                     />
-                    {reversed ? '正序' : '倒序'}
+                    {reversed ? t('watch.orderAsc') : t('watch.orderDesc')}
                   </button>
                 )}
-                <em>{episodes.length > 0 ? `${episodes.length} 集` : 'episodes'}</em>
+                <em>{episodes.length > 0 ? t('watch.episodes', { n: episodes.length }) : 'episodes'}</em>
               </h4>
               {episodes.length === 0 ? (
                 detailQuery.isLoading ? (
                   <LoadingState />
                 ) : (
-                  <EmptyState variant="plain" title={detailQuery.isError ? '获取剧集失败' : '暂无剧集信息'} />
+                  <EmptyState
+                variant="plain"
+                title={detailQuery.isError ? t('watch.detailFailed') : t('watch.noEpisodes')}
+              />
                 )
               ) : (
-                <div className="g-eps">
-                  {orderedEpisodes.map((realIndex) => (
-                    <EpisodeButton
-                      key={realIndex}
-                      index={realIndex}
-                      active={realIndex === currentIndex}
-                      onClick={() => goEpisode(realIndex)}
-                    />
-                  ))}
-                </div>
+                /*
+                 * 虚拟滚动：国产剧/短剧常有几百上千集，旧实现一次渲染全部按钮，
+                 * 首屏要建上千个节点（每个还带 useRef + scrollIntoView effect）。
+                 * 列数由 EpisodeGrid 按容器宽度自己算，不再依赖 CSS 断点。
+                 */
+                <EpisodeGrid
+                  count={episodes.length}
+                  currentIndex={currentIndex}
+                  reversed={reversed}
+                  onSelect={goEpisode}
+                />
               )}
             </div>
 
@@ -491,18 +560,4 @@ function WatchContent() {
   );
 }
 
-/** 集数按钮：激活时自动滚动进可视区（长剧列表） */
-function EpisodeButton({ index, active, onClick }: { index: number; active: boolean; onClick: () => void }) {
-  const ref = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (active) ref.current?.scrollIntoView({ block: 'nearest' });
-  }, [active]);
-
-  return (
-    <button ref={ref} className={cn('g-ep', active && 'on')} onClick={onClick}>
-      {index + 1}
-    </button>
-  );
-}
 

@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Artplayer from 'artplayer';
 import Hls, { type HlsConfig } from 'hls.js';
 import { Spinner } from './states';
+import { useT } from './lang-sync';
 
 /**
  * 直播播放器：与点播 player-shell 完全独立。
@@ -49,6 +50,15 @@ interface LivePlayerProps {
 }
 
 export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePlayerProps) {
+  /*
+   * 文案统一走字典。创建播放器的 useEffect 依赖是 [url, retryNonce, …]（换台才重跑），
+   * 直接在 effect 里用 useT() 返回的闭包会停在挂载时的语言上，所以走 ref 转发：
+   * tt 恒定指向当前语言的翻译函数。同时 effect 依赖数组里不能加 t（会每次渲染重跑播放器）。
+   */
+  const tCurrent = useT();
+  const tRef = useRef(tCurrent);
+  tRef.current = tCurrent;
+  const tt = useCallback((key: string, vars?: Record<string, string | number>) => tRef.current(key, vars), []);
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const artRef = useRef<any>(null);
@@ -127,11 +137,11 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
         nativeCleanup = null;
         if (disposed || destroyed) return;
         if (allowProxyFallback && !mediaUrl.startsWith(STREAM_PROXY_PREFIX)) {
-          showHint('直连失败，改用代理重试...');
+          showHint(tt('lp.retryProxy'));
           setupNative(video, proxyUrl(url), false, failMessage);
           return;
         }
-        setError(failMessage || '该地址不是可播放的直播流（内容可能是文件或错误提示）');
+        setError(failMessage || tt('lp.badStream'));
       };
       video.addEventListener('error', onError);
       nativeCleanup = () => video.removeEventListener('error', onError);
@@ -168,7 +178,7 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
         if (/hvc1|hev1|hevc/i.test(videoCodecs)) {
           const support = video.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"');
           if (!support) {
-            showHint('该频道为 H.265 编码，当前浏览器可能无法解码，建议用 Edge/Safari');
+            showHint(tt('lp.hevcHint'));
           }
         }
         video.play().catch(() => {});
@@ -176,7 +186,7 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
       hls.on(Hls.Events.ERROR, (_evt, data) => {
         if (disposed || destroyed) return;
         const httpCode = data.response?.code;
-        const codeHint = httpCode ? `（HTTP ${httpCode}）` : '';
+        const codeHint = httpCode ? tt('lp.httpCode', { code: httpCode }) : '';
         if (!data.fatal) return;
         // 媒体错误：起播前后统一尝试恢复，次数受限防止无限 recover 循环
         if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
@@ -185,7 +195,7 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
             hls.recoverMediaError();
             return;
           }
-          setError('直播流解码失败，可能该频道编码不受当前浏览器支持，请尝试其他频道');
+          setError(tt('lp.decodeFail'));
           return;
         }
         if (!playbackStarted) {
@@ -194,21 +204,21 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
             !mediaUrl.startsWith(STREAM_PROXY_PREFIX) &&
             (data.details === 'manifestLoadError' || data.type === Hls.ErrorTypes.NETWORK_ERROR)
           ) {
-            showHint('直连失败，改用代理重试...');
+            showHint(tt('lp.retryProxy'));
             // 直播 manifest 重写需要本站前缀，交给代理通道
             setupHls(video, proxyUrl(url), 'proxy');
             return;
           }
           // HLS 直连与代理均失败：可能是"无 .m3u8 后缀但内容是 MP4"的源，回退原生播放
-          showHint('HLS 解析失败，尝试原生播放...');
-          setupNative(video, url, true, `直播流加载失败${codeHint}，可能该频道已失效，请尝试其他频道`);
+          showHint(tt('lp.hlsFallback'));
+          setupNative(video, url, true, tt('lp.loadFail', { code: codeHint }));
           return;
         }
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
           // 播放中网络抖动：尝试恢复拉流；连续失败达到阈值则报错退出
           liveNetRetryCount++;
           if (liveNetRetryCount > 5) {
-            setError(`直播流中断${codeHint}，该源可能已失效，请尝试其他频道`);
+            setError(tt('lp.interrupted', { code: codeHint }));
             return;
           }
           hls.startLoad();
@@ -227,12 +237,12 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
       try {
         Mpegts = (await import('mpegts.js')).default;
       } catch {
-        setError('FLV 播放模块加载失败，请检查网络后重试');
+        setError(tt('lp.flvModuleFail'));
         return;
       }
       if (disposed || destroyed) return;
       if (!Mpegts.getFeatureList().mseLivePlayback) {
-        setError('当前浏览器不支持 FLV 直播播放');
+        setError(tt('lp.flvUnsupported'));
         return;
       }
       const player = Mpegts.createPlayer(
@@ -255,11 +265,11 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
       player.on(Mpegts.Events.ERROR, (errType: string) => {
         if (disposed || destroyed) return;
         if (!playbackStarted && allowProxyFallback && !mediaUrl.startsWith(STREAM_PROXY_PREFIX)) {
-          showHint('直连失败，改用代理重试...');
+          showHint(tt('lp.retryProxy'));
           void setupFlv(video, proxyUrl(url), false);
           return;
         }
-        setError(`直播流加载失败（${errType}），请尝试其他频道`);
+        setError(tt('lp.flvError', { type: errType }));
       });
       player.play().catch(() => {});
     };
@@ -276,7 +286,7 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
         position: 'left',
         index: 0,
         html: channelBtnSvg('M11 19l-7-7 7-7m8 14l-7-7 7-7'),
-        tooltip: '上一台',
+        tooltip: tt('lp.prevTooltip'),
         click: () => onPrevChannel(),
       });
     }
@@ -286,7 +296,7 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
         position: 'left',
         index: 1,
         html: channelBtnSvg('M13 5l7 7-7 7M5 5l7 7-7 7'),
-        tooltip: '下一台',
+        tooltip: tt('lp.nextTooltip'),
         click: () => onNextChannel(),
       });
     }
@@ -342,7 +352,7 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
     });
     art.on('video:error', () => {
       // mpegts 走自身 ERROR 事件；这里兜底其它未知错误
-      if (!mpegtsRef.current) setError('视频播放失败，请尝试其他频道');
+      if (!mpegtsRef.current) setError(tt('lp.videoFail'));
     });
     art.on('ready', () => {
       // 直播隐藏进度条（ArtPlayer 无原生 isLive 开关）
@@ -355,7 +365,7 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
     // 15s 内未起播则提示
     const startTimer = setTimeout(() => {
       if (!playbackStarted && !disposed && !destroyed) {
-        setError('频道加载超时，可能该源已失效，请尝试其他频道');
+        setError(tt('lp.startTimeout'));
       }
     }, 15000);
 
@@ -416,7 +426,7 @@ export function LivePlayer({ url, title, onPrevChannel, onNextChannel }: LivePla
               setRetryNonce((n) => n + 1);
             }}
           >
-            重新加载
+            {tt('lp.reload')}
           </button>
         </div>
       )}

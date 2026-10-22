@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { SmartImage } from './smart-image';
 import { Dropdown } from './dropdown';
 import { useAppStore } from '@/lib/store';
+import { useT } from './lang-sync';
 import {
   isSlowSource,
   matchesAlive,
@@ -32,14 +33,17 @@ import { EmptyState } from './states';
 
 const SEARCH_DEBOUNCE_MS = 200;
 
+/** 测活进度文案用的翻译函数（模块级函数拿不到 hook，由调用方把 t 传进来） */
+type Translator = (key: string, vars?: Record<string, string | number>) => string;
+
 /** 测活进度文案：按已完成均速估算剩余时间（长尾在途期间由每秒 tick 重渲染保持走动） */
-function formatProbeProgress(p: { done: number; total: number; startedAt: number }): string {
+function formatProbeProgress(p: { done: number; total: number; startedAt: number }, t: Translator): string {
   const base = `${p.done}/${p.total}`;
   const remaining = p.total - p.done;
   if (remaining <= 0) return base;
-  if (p.done <= 0) return `${base} · 估算中…`;
+  if (p.done <= 0) return `${base} · ${t('live.probeEstimating')}`;
   const remainMin = Math.ceil(((Date.now() - p.startedAt) / p.done) * remaining / 60000);
-  return `${base} · 预计剩余 ${Math.max(1, remainMin)} 分钟`;
+  return `${base} · ${t('live.probeEta', { n: Math.max(1, remainMin) })}`;
 }
 
 export interface LiveChannelItem extends LiveChannel {
@@ -76,6 +80,7 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const customImageProxy = useAppStore((s) => s.customImageProxy);
 
+  const t = useT();
   const [view, setView] = useState<View>('all');
   const [group, setGroup] = useState<string>('');
   const [keyword, setKeyword] = useState('');
@@ -219,9 +224,10 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
       <div className="flex items-center gap-1 px-3 pt-2.5 pb-2 border-b border-line shrink-0">
         {(
           [
-            ['all', `全部${channels.length ? ` ${channels.length}` : ''}`],
-            ['fav', `收藏${liveFavorites.length ? ` ${liveFavorites.length}` : ''}`],
-            ['recent', '最近'],
+            // 计数后缀留空：数字前面用空格分隔，中英文都不需要额外标点
+            ['all', `${t('live.tabAll')}${channels.length ? ` ${channels.length}` : ''}`],
+            ['fav', `${t('live.tabFav')}${liveFavorites.length ? ` ${liveFavorites.length}` : ''}`],
+            ['recent', t('live.tabRecent')],
           ] as [View, string][]
         ).map(([v, label]) => (
           <button
@@ -241,7 +247,7 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
       <div className="px-3 py-2 shrink-0 flex items-center gap-1.5">
         <input
           className="input w-full !py-1.5 text-xs"
-          placeholder="搜索频道 / tvg-id / 分组..."
+          placeholder={t('live.searchPlaceholder')}
           value={keyword}
           maxLength={60}
           onChange={(e) => setKeyword(e.target.value)}
@@ -258,14 +264,14 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
         <Dropdown
           className="shrink-0 [&>button]:!py-1.5 [&>button]:!px-2 [&>button]:text-xs"
           value={sortMode}
-          ariaLabel="排序方式"
+          ariaLabel={t('live.sortAria')}
           onChange={(v) => setSortMode(v as LiveSortMode)}
           options={[
-            { value: 'default', label: '默认' },
-            { value: 'name', label: '名称' },
-            { value: 'group', label: '分组' },
-            { value: 'probe', label: '可用优先' },
-            { value: 'recent', label: '最近看' },
+            { value: 'default', label: t('live.sortDefault') },
+            { value: 'name', label: t('live.sortName') },
+            { value: 'group', label: t('live.sortGroup') },
+            { value: 'probe', label: t('live.sortProbe') },
+            { value: 'recent', label: t('live.sortRecent') },
           ]}
         />
       </div>
@@ -276,18 +282,18 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
           className="btn-ghost btn-sm"
           disabled={isProbing || filtered.length === 0}
           onClick={() => void probe(filtered)}
-          title="探测当前列表频道是否可播（分片级校验；量大时自动分批排队跑完，结果 6 小时内有效）"
+          title={t('live.probeTip')}
         >
-          测活
+          {t('live.probeBtn')}
         </button>
         {/* 同一操作位按时机切换：测活中=取消（保留已完成结果）；空闲且有结果=清除全部 */}
         {isProbing ? (
           <button
             className="btn-ghost btn-sm"
             onClick={cancelProbe}
-            title="中止本次测活，已完成的结果会保留"
+            title={t('live.probeCancelTip')}
           >
-            取消
+            {t('live.probeCancel')}
           </button>
         ) : (
           probeResults.size > 0 && (
@@ -297,15 +303,15 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
                 clearProbe();
                 setAliveFilter('off');
               }}
-              title="清除全部测活结果，并取消可用性筛选"
+              title={t('live.probeClearTip')}
             >
-              清除
+              {t('live.probeClear')}
             </button>
           )
         )}
         {isProbing && probeProgress && (
           <span className="text-[10px] text-faint whitespace-nowrap">
-            探测中 {formatProbeProgress(probeProgress)}
+            {t('live.probeRunning', { progress: formatProbeProgress(probeProgress, t) })}
           </span>
         )}
         {probeHint && (
@@ -321,9 +327,9 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
                   : 'bg-chip text-muted border-line hover:text-content hover:bg-hover'
               )}
               onClick={() => setAliveFilter((v) => (v === 'green' ? 'off' : 'green'))}
-              title="只看分片级验证通过的频道"
+              title={t('live.onlyGreenTip')}
             >
-              绿点 {aliveCounts.green}
+              {t('live.onlyGreen', { n: aliveCounts.green })}
             </button>
             <button
               className={cn(
@@ -333,9 +339,9 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
                   : 'bg-chip text-muted border-line hover:text-content hover:bg-hover'
               )}
               onClick={() => setAliveFilter((v) => (v === 'ok' ? 'off' : 'ok'))}
-              title="看所有验证通过（含直链/清单级弱验证）的频道"
+              title={t('live.onlyOkTip')}
             >
-              可播 {aliveCounts.ok}
+              {t('live.onlyOk', { n: aliveCounts.ok })}
             </button>
           </>
         )}
@@ -345,7 +351,7 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
       {view === 'all' && groups.length > 0 && (
         <div className="px-3 pb-2 shrink-0">
           <div className="flex gap-1.5 overflow-x-auto scrollbar-thin pb-1">
-            <GroupChip active={!group} label="全部分组" onClick={() => setGroup('')} />
+            <GroupChip active={!group} label={t('live.allGroups')} onClick={() => setGroup('')} />
             {groups.map((g) => (
               <GroupChip key={g} active={group === g} label={g} onClick={() => setGroup(g === group ? '' : g)} />
             ))}
@@ -367,14 +373,14 @@ export function LiveChannelList({ channels, groups, currentUrl, onSelect, onFilt
             className="!py-10"
             title={
               view === 'fav'
-                ? '暂无收藏频道，点击频道右侧星标即可收藏'
+                ? t('live.emptyFav')
                 : view === 'recent'
-                  ? '暂无观看记录'
+                  ? t('live.emptyRecent')
                   : channels.length === 0
-                    ? '暂无频道，请先在设置中添加直播源'
+                    ? t('live.emptyNoChannel')
                     : aliveFilter !== 'off' && probeResults.size > 0
-                      ? '没有匹配该可用性的频道，可放宽或清除筛选'
-                      : '没有匹配的频道'
+                      ? t('live.emptyFilter')
+                      : t('live.emptyNoMatch')
             }
           />
         ) : (
@@ -455,6 +461,7 @@ const ChannelRow = memo(function ChannelRow({
   /** 仅最近视图传入：删除该条观看记录 */
   onRemoveRecent?: (url: string) => void;
 }) {
+  const t = useT();
   const [logoFailed, setLogoFailed] = useState(false);
   // 虚拟列表会复用行实例：换台（logo 变化）时重置失败态，避免下一个频道误显首字母
   useEffect(() => setLogoFailed(false), [logo]);
@@ -468,22 +475,26 @@ const ChannelRow = memo(function ChannelRow({
   const dotClass = amber ? 'bg-warning' : probe?.ok ? 'bg-success' : 'bg-danger';
   const levelText =
     probe?.level === 'segment'
-      ? '分片可用'
+      ? t('live.levelSegment')
       : probe?.level === 'head'
-        ? '直链可达（未验证可播性）'
-        : '播放列表可达（无分片，未验证可播）';
-  const speedText =
+        ? t('live.levelHead')
+        : t('live.levelPlaylist');
+  // 码率单独留一份纯数值串：限速提示要把它塞进句子中间，与「 · ≈N」后缀形态不同
+  const rateText =
     probe?.kbps != null && probe.level === 'segment'
-      ? ` · ≈${probe.kbps >= 1000 ? `${(probe.kbps / 1000).toFixed(1)}Mbps` : `${probe.kbps}kbps`}`
+      ? probe.kbps >= 1000
+        ? `${(probe.kbps / 1000).toFixed(1)}Mbps`
+        : `${probe.kbps}kbps`
       : '';
+  const speedText = rateText ? t('live.tipRate', { rate: rateText }) : '';
   const probeTitle = probe
     ? probe.ok
       ? slow
-        ? `源限速${speedText.replace(' · ', ' ')}，缓冲跟不上，可能无法流畅播放`
-        : `${levelText}${speedText}${probe.ms != null && probe.level === 'segment' ? ` · 延迟 ${probe.ms}ms` : ''}${isHevc ? ' · H.265 编码，需 Edge/Safari' : ''}`
+        ? t('live.tipSlow', { rate: rateText ? ` ${rateText}` : '' })
+        : `${levelText}${speedText}${probe.ms != null && probe.level === 'segment' ? t('live.tipLatency', { ms: probe.ms }) : ''}${isHevc ? t('live.tipHevc') : ''}`
       : probe.timedOut
-        ? `${probe.error || '探测超时'} · 源可能只是慢，可直接试播确认`
-        : probe.error || '不可用'
+        ? `${probe.error || t('live.tipTimeoutLabel')}${t('live.tipTimeoutHint')}`
+        : probe.error || t('live.tipUnavailable')
     : undefined;
 
   return (
@@ -534,7 +545,7 @@ const ChannelRow = memo(function ChannelRow({
             {isHevc && (
               <span
                 className="shrink-0 rounded-full bg-warning/15 px-1.5 text-[10px] font-medium text-warning"
-                title="H.265 编码：测活通过但 Chromium 内核通常无法解码，建议用 Edge/Safari"
+                title={t('live.hevcBadgeTitle')}
               >
                 H.265
               </span>
@@ -551,8 +562,8 @@ const ChannelRow = memo(function ChannelRow({
               'shrink-0 p-1 rounded transition-colors',
               'text-faint/60 opacity-60 lg:opacity-0 lg:group-hover:opacity-100 hover:text-danger'
             )}
-            aria-label="删除该观看记录"
-            title="删除该观看记录"
+            aria-label={t('live.removeRecentAria')}
+            title={t('live.removeRecentAria')}
             onClick={(e) => {
               e.stopPropagation();
               onRemoveRecent(channel.url);
@@ -571,8 +582,8 @@ const ChannelRow = memo(function ChannelRow({
               ? 'text-warning'
               : 'text-faint/60 opacity-60 lg:opacity-0 lg:group-hover:opacity-100 hover:text-warning'
           )}
-          aria-label={isFav ? '取消收藏' : '收藏'}
-          title={isFav ? '取消收藏' : '收藏'}
+          aria-label={isFav ? t('live.unfav') : t('live.fav')}
+          title={isFav ? t('live.unfav') : t('live.fav')}
           onClick={(e) => {
             e.stopPropagation();
             // 点击时读取最新状态：行组件不订阅 store，保证探测期间的重渲染隔离

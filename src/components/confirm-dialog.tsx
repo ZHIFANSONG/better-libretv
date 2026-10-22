@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { useT } from './lang-sync';
 
 /**
  * 破坏性操作确认弹窗（分级确认中的「重操作」）：
@@ -13,8 +14,8 @@ export function ConfirmDialog({
   open,
   title,
   message,
-  confirmLabel = '确认',
-  cancelLabel = '取消',
+  confirmLabel,
+  cancelLabel,
   danger = false,
   onConfirm,
   onCancel,
@@ -29,6 +30,10 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  // 默认按钮文案走字典：默认参数里拿不到 hook，只在未传时回落到字典
+  const t = useT();
+  const confirmText = confirmLabel ?? t('common.confirm');
+  const cancelText = cancelLabel ?? t('common.cancel');
   const confirmRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
@@ -76,7 +81,7 @@ export function ConfirmDialog({
         {message && <div className="text-sm text-muted leading-relaxed">{message}</div>}
         <div className="flex gap-2 justify-end mt-5">
           <button ref={cancelRef} className="btn-ghost text-sm" onClick={onCancel}>
-            {cancelLabel}
+            {cancelText}
           </button>
           <button
             ref={confirmRef}
@@ -86,7 +91,7 @@ export function ConfirmDialog({
             )}
             onClick={onConfirm}
           >
-            {confirmLabel}
+            {confirmText}
           </button>
         </div>
       </div>

@@ -6,6 +6,7 @@ import { db, MAX_HISTORY } from '@/lib/db';
 import { buildWatchUrl, formatRelativeTime, formatTime } from '@/lib/utils';
 import { resolveSource, useAppStore } from '@/lib/store';
 import { SmartImage } from './smart-image';
+import { useT } from './lang-sync';
 
 /**
  * 「继续观看」（proposal 版首页的第二段海报区）：取最近的观看历史，
@@ -21,14 +22,15 @@ export function ContinueWatchingSection({ limit = 6 }: { limit?: number }) {
   const envSources = useAppStore((s) => s.envSources);
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const customImageProxy = useAppStore((s) => s.customImageProxy);
+  const t = useT();
 
   const items = (history ?? []).slice(0, limit);
   if (items.length === 0) return null;
 
   return (
-    <section aria-label="继续观看">
+    <section aria-label={t('cw.aria')}>
       <h2 className="g-h2">
-        继续观看 <small>history</small>
+        {t('cw.title')} <small>history</small>
       </h2>
       <div className="g-grid">
         {items.map((item) => {
@@ -48,7 +50,7 @@ export function ContinueWatchingSection({ limit = 6 }: { limit?: number }) {
               key={`${item.sourceKey}_${item.vodId}`}
               href={href}
               className="g-poster"
-              aria-label={`继续播放 ${item.title}`}
+              aria-label={t('cw.resumeTip', { title: item.title })}
             >
               {item.pic && (
                 <SmartImage
@@ -62,8 +64,8 @@ export function ContinueWatchingSection({ limit = 6 }: { limit?: number }) {
               <div className="g-poster-meta">
                 <b title={item.title}>{item.title}</b>
                 <span>
-                  {item.totalEpisodes > 1 ? `第 ${item.episodeIndex + 1} 集 · ` : ''}
-                  {item.playbackPosition > 0 ? formatTime(item.playbackPosition) : '未开始'}
+                  {item.totalEpisodes > 1 ? t('cw.episodeN', { n: item.episodeIndex + 1 }) : ''}
+                  {item.playbackPosition > 0 ? formatTime(item.playbackPosition) : t('cw.notStarted')}
                   {' · '}
                   {formatRelativeTime(item.timestamp)}
                 </span>

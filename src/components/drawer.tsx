@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Icon } from './icon';
+import { useT } from './lang-sync';
 
 /**
  * 通用右侧抽屉骨架：
@@ -42,6 +43,7 @@ export function Drawer({
   /** 该值变化时内容区滚回顶部（如切换设置分组 / 面板） */
   resetScrollKey?: string;
 }) {
+  const t = useT();
   const [mounted, setMounted] = useState(open);
   const [entered, setEntered] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -159,14 +161,16 @@ export function Drawer({
           <button
             className="p-1.5 rounded-md text-muted hover:text-content hover:bg-hover transition-colors"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={t('common.close')}
           >
             <Icon name="close" />
           </button>
         </div>
         {subheader && <div className="shrink-0 px-4 py-2.5 border-b border-line bg-surface-raised/50">{subheader}</div>}
         {/* 唯一滚动区：内容再长也只在这一层滚动，避免与列表内滚形成嵌套滚动 */}
-        <div ref={contentRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 pt-4 pb-6">
+        {/* g-drawer-safe：底部再垫一层 env(safe-area-inset-bottom)，
+            否则 iPhone 上最后一项正好落在 Home 指示条下面，看得见点不到 */}
+        <div ref={contentRef} className="g-drawer-safe flex-1 min-h-0 overflow-y-auto scrollbar-thin px-4 pt-4 pb-6">
           {children}
         </div>
       </div>

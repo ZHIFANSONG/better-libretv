@@ -2,6 +2,8 @@
 
 import { api } from './client-api';
 import { normalizeTitle } from './cms-parser';
+import { tr } from './i18n';
+import type { AppLanguage } from './store';
 import type { SearchResultItem, SourceConfig, SourceSearchOutcome } from './types';
 
 /**
@@ -183,10 +185,14 @@ export function sortCandidates(
  */
 export type LatencyLike = Pick<SourceCandidate, 'ok' | 'ms'>;
 
-/** 「12ms」这类短延迟文案；未测完返回「测速中」 */
-export function latencyText(c: LatencyLike): string {
-  if (c.ok === false) return '不可用';
-  if (c.ms === undefined) return '测速中';
+/**
+ * 「12ms」这类短延迟文案；未测完返回「测速中」。
+ * 延迟数字本身与语言无关，只有「不可用 / 测速中」两个状态词要翻，
+ * 所以形参只是一个可选的界面语言（默认中文，与 tr 的默认一致）。
+ */
+export function latencyText(c: LatencyLike, lang: AppLanguage = 'zh'): string {
+  if (c.ok === false) return tr(lang, 'ss.unavailable');
+  if (c.ms === undefined) return tr(lang, 'ss.latencyPending');
   return `${c.ms}ms`;
 }
 

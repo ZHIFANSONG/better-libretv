@@ -1235,27 +1235,28 @@
 }
 
 /* 剧集面板里的网格（提案 .eps 是 6 列） */
+/*
+ * 选集区（EpisodeGrid 组件）：外层只负责滚动，内层是虚拟滚动的定位容器，
+ * 每一行是一个 grid。列数不再由 viewport 断点决定 —— 组件按容器实测宽度算好
+ * 后写在内联 gridTemplateColumns 上（桌面侧栏 340px → 6 列，手机满宽 → 8 列）。
+ */
 .g-eps {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 7px;
   max-height: 65vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
-@media (min-width: 640px) {
-  .g-eps {
-    grid-template-columns: repeat(6, 1fr);
-  }
-}
-@media (min-width: 1024px) {
-  .g-eps {
-    grid-template-columns: repeat(4, 1fr);
-  }
+.g-eps-row {
+  display: grid;
+  gap: 7px;
 }
 .g-ep {
   font-size: 12px;
   text-align: center;
-  padding: 8px 0;
+  /* 固定行高（而不是 padding 撑开）：虚拟滚动按 ESTIMATE=32+7 定位，
+     行高一旦随内容/内边距浮动，滚动到中后段就会累积误差、露出空白 */
+  height: 32px;
+  line-height: 30px;
+  padding: 0;
   border-radius: var(--r-sm);
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.09);
@@ -2384,3 +2385,90 @@
   color: var(--brand-deep);
 }
 
+
+/* ===== 安全区（iPhone 刘海 / 底部 Home 指示条 / iPad 圆角） =====
+   前提是 app/layout.tsx 里 viewport 声明了 viewportFit:'cover'——不开 cover 时
+   env(safe-area-inset-*) 恒为 0，下面这些 max()/calc() 全部退化成原值。
+   统一放在文件末尾：同优先级时后来者覆盖，不必回头改上面的既有规则。 */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+/* 顶部胶囊导航：状态栏/刘海高度之上再留原本的 10px 呼吸 */
+.g-nav {
+  padding-top: max(10px, var(--safe-top));
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+/* 移动端底部抽屉（直播页频道列表、播放页侧栏）：抬到 Home 指示条之上，
+   否则最后一排按钮会被系统手势条压住点不到 */
+@media (max-width: 1024px) {
+  .g-sidebar {
+    bottom: var(--safe-bottom);
+    padding-bottom: var(--safe-bottom);
+  }
+}
+/* 直播页移动端悬浮按钮 */
+.g-fab {
+  bottom: calc(16px + var(--safe-bottom));
+  right: calc(16px + var(--safe-right));
+}
+/* 横屏时左右两侧的圆角/刘海 */
+.g-shell {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+/* 侧滑抽屉：内容区底部留白，最后一项不被手势条遮住 */
+.g-drawer-safe {
+  padding-bottom: calc(24px + var(--safe-bottom));
+}
+
+/* ===== 字幕面板（m16818 ⑧） =====
+ * 复用 .g-vstats 的外壳（同一坐标系、同样的玻璃底），只把内部列表换成可点条目。
+ * 高度交给内容：字幕条目通常 0~3 条，不需要 .g-vstats 那套 max-height 滚动。
+ */
+.g-subpanel .g-vstats-body {
+  padding: 4px 6px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.g-sub-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.g-sub-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  /* 长文件名（本地字幕）不要把面板撑宽 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.g-sub-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.g-sub-item.on {
+  background: rgba(103, 153, 254, 0.24);
+  color: #fff;
+}
+.g-sub-item em {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-style: normal;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.45);
+}

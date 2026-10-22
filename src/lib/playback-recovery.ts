@@ -14,6 +14,8 @@
  * 而源站彻底挂掉时计数会持续累积并最终触发换源。
  */
 
+import { tr } from './i18n';
+
 /** hls.js 的 ErrorTypes 常量值，这里用字面量避免静态引入 hls.js */
 export const HLS_ERROR_NETWORK = 'networkError';
 export const HLS_ERROR_MEDIA = 'mediaError';
@@ -52,6 +54,16 @@ export type RecoveryDecision =
   | { action: 'switch-source'; reason: string }
   | { action: 'ignore'; reason: string };
 
+/**
+ * 决策原因与错误描述都要给用户看，所以允许注入翻译。
+ *
+ * 本模块同样是纯逻辑（被 vitest 直接 import），默认走中文字典，
+ * 播放器传 useT() 的 t 进来就整体跟着界面语言走。
+ */
+export type RecoveryTranslator = (key: string, vars?: Record<string, string | number>) => string;
+
+const zhT: RecoveryTranslator = (key, vars) => tr('zh', key, vars);
+
 /** 动作后 3s 内的 FRAG_LOADED 视为重试噪声，不用于清零计数 */
 const HEALTHY_QUIET_MS = 3000;
 
@@ -63,8 +75,11 @@ export class PlaybackRecovery {
   private disposed = false;
   private timers = new Set<ReturnType<typeof setTimeout>>();
 
-  constructor(policy: Partial<RecoveryPolicy> = {}) {
+  private t: RecoveryTranslator;
+
+  constructor(policy: Partial<RecoveryPolicy> = {}, t?: RecoveryTranslator) {
     this.policy = { ...DEFAULT_RECOVERY_POLICY, ...policy };
+    this.t = t ?? zhT;
   }
 
   /** 播放链路恢复（FRAG_LOADED / MANIFEST_PARSED）：静默窗外的成功清零计数 */
@@ -77,31 +92,34 @@ export class PlaybackRecovery {
 
   /** 致命错误 → 恢复决策 */
   onFatal(type: string, details: string): RecoveryDecision {
-    if (this.disposed) return { action: 'ignore', reason: '已销毁' };
+    if (this.disposed) return { action: 'ignore', reason: this.t('recovery.disposed') };
     this.lastActionAt = Date.now();
 
     if (HARD_FAIL_DETAILS.has(details)) {
-      return { action: 'switch-source', reason: '播放列表格式无法解析，重试无意义' };
+      return { action: 'switch-source', reason: this.t('recovery.hardFail') };
     }
 
     if (type === HLS_ERROR_MEDIA) {
       this.mediaRecoveries += 1;
       if (this.mediaRecoveries > this.policy.maxMediaRecoveries) {
-        return { action: 'switch-source', reason: '媒体解码错误多次恢复无效' };
+        return { action: 'switch-source', reason: this.t('recovery.mediaDead') };
       }
       return {
         action: 'recover-media',
         // 第 1 次仅 recoverMediaError；第 2 次追加 swapAudioCodec（hls.js 官方推荐链）
         swapAudio: this.mediaRecoveries >= 2,
         attempt: this.mediaRecoveries,
-        reason: '媒体解码错误，尝试恢复',
+        reason: this.t('recovery.mediaRetry'),
       };
     }
 
     if (type === HLS_ERROR_NETWORK) {
       this.networkRetries += 1;
       if (this.networkRetries > this.policy.maxNetworkRetries) {
-        return { action: 'switch-source', reason: `网络错误已重试 ${this.policy.maxNetworkRetries} 次仍未恢复` };
+        return {
+          action: 'switch-source',
+          reason: this.t('recovery.networkDead', { n: this.policy.maxNetworkRetries }),
+        };
       }
       return {
         action: 'retry',
@@ -110,11 +128,11 @@ export class PlaybackRecovery {
           this.policy.baseDelayMs * 2 ** (this.networkRetries - 1),
           this.policy.maxDelayMs
         ),
-        reason: '网络错误，退避重试',
+        reason: this.t('recovery.networkRetry'),
       };
     }
 
-    return { action: 'switch-source', reason: `未知的致命错误类型：${type}` };
+    return { action: 'switch-source', reason: this.t('recovery.unknownType', { type }) };
   }
 
   /** 决策为 retry 时由调用方调用：统一管理定时器，dispose 时全部取消 */
@@ -133,23 +151,26 @@ export class PlaybackRecovery {
   }
 }
 
-/** hls 错误 → 中文提示（用于 hint 浮层 / toast） */
-export function describeHlsError(type: string, details: string): string {
-  if (HARD_FAIL_DETAILS.has(details)) return '播放列表格式无法解析';
+/** hls 错误 → 提示文案（用于 hint 浮层 / toast）；t 省略时输出中文 */
+export function describeHlsError(type: string, details: string, t?: RecoveryTranslator): string {
+  const tt = t ?? zhT;
+  if (HARD_FAIL_DETAILS.has(details)) return tt('recovery.desc.hardFail');
   switch (details) {
     case 'manifestLoadError':
     case 'manifestLoadTimeOut':
-      return '播放列表加载失败';
+      return tt('recovery.desc.manifestLoad');
     case 'manifestParsingError':
-      return '播放列表解析失败';
+      return tt('recovery.desc.manifestParse');
     case 'fragLoadError':
     case 'fragLoadTimeOut':
-      return '视频分片加载失败';
+      return tt('recovery.desc.fragLoad');
     case 'keyLoadError':
-      return '解密密钥加载失败';
+      return tt('recovery.desc.keyLoad');
     case 'bufferStalledError':
-      return '缓冲不足';
+      return tt('recovery.desc.stalled');
     default:
-      return type === HLS_ERROR_MEDIA ? '媒体解码错误' : `播放错误（${details || type}）`;
+      return type === HLS_ERROR_MEDIA
+        ? tt('recovery.desc.media')
+        : tt('recovery.desc.generic', { details: details || type });
   }
 }

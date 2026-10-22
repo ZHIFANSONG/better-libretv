@@ -10,6 +10,8 @@ import { latencyLevel, latencyText } from '@/lib/source-switch';
 import { cn } from '@/lib/utils';
 import { QualityBadge } from './quality-badge';
 import { SmartImage } from './smart-image';
+import { useLang, useT } from './lang-sync';
+import { listSep } from '@/lib/i18n';
 
 // —— 跨源同名聚合 ——
 
@@ -86,6 +88,8 @@ export function AggregatedCard({
   /** 完整源配置：探测画质需要 source.url / source.detail，搜索结果里只带 sourceUrl */
   sources?: SourceConfig[];
 }) {
+  const t = useT();
+  const lang = useLang();
   const imageProxyMode = useAppStore((s) => s.imageProxyMode);
   const customImageProxy = useAppStore((s) => s.customImageProxy);
   // 每个源的本次搜索耗时（来自搜索流里的 outcome）：命中就显示延迟档位圆点，
@@ -232,8 +236,8 @@ export function AggregatedCard({
       className="g-rcard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
       role="button"
       tabIndex={0}
-      aria-label={group.name + "，" + count + " 个来源"}
-      title={sourceNames.length > 1 ? sourceNames.join("、") : undefined}
+      aria-label={t('vc.sourcesAria', { name: group.name, n: count })}
+      title={sourceNames.length > 1 ? sourceNames.join(listSep(lang)) : undefined}
       onClick={activate}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -260,7 +264,7 @@ export function AggregatedCard({
           </div>
         )}
         <span className="g-rcard-cnt">
-          {count > 1 ? count + " 个来源" : sourceNames[0] || "单一来源"}
+          {count > 1 ? t('vc.sourcesCount', { n: count }) : sourceNames[0] || t('vc.singleSource')}
         </span>
       </div>
 
@@ -273,7 +277,7 @@ export function AggregatedCard({
             {adult && <s>(18+)</s>}
           </div>
         )}
-        <p>{group.remarks || "暂无介绍"}</p>
+        <p>{group.remarks || t('vc.noDesc')}</p>
         {/*
          * 来源行：原来卡上只写「4 个来源」几个字，点进去也只有一个源能播，
          * 用户根本选不了用哪个 API 的资源 —— 现在每个源都是一颗直接开播的胶囊。
@@ -290,7 +294,11 @@ export function AggregatedCard({
               <button
                 key={key}
                 className="g-rcard-srcrow"
-                title={`用「${it.sourceName || it.sourceKey}」播放${it.remarks ? ` · ${it.remarks}` : ""}${h?.ms != null ? ` · 搜索耗时 ${h.ms}ms` : ""}`}
+                title={t('vc.playTip', {
+                  name: it.sourceName || it.sourceKey,
+                  remarks: it.remarks ? t('vc.playTipRemarks', { remarks: it.remarks }) : '',
+                  ms: h?.ms != null ? t('vc.playTipMs', { ms: h.ms }) : '',
+                })}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (onPlaySource) onPlaySource(it);
@@ -300,7 +308,7 @@ export function AggregatedCard({
                 <i className={cn('g-dot', lv)} />
                 {it.sourceName || it.sourceKey}
                 <QualityBadge entry={qualities[key]} loading={probing[key]} />
-                {h?.ok && h.ms != null && <em>{latencyText({ ok: h.ok, ms: h.ms })}</em>}
+                {h?.ok && h.ms != null && <em>{latencyText({ ok: h.ok, ms: h.ms }, lang)}</em>}
               </button>
             );
           })}
@@ -310,19 +318,19 @@ export function AggregatedCard({
            */}
           <button
             className="g-rcard-qbtn"
-            title={Object.keys(probing).length > 0 ? '正在探测画质…' : '探测各来源画质（10 秒内出结果）'}
+            title={Object.keys(probing).length > 0 ? t('vc.probingTip') : t('vc.probeTip')}
             onClick={(e) => {
               e.stopPropagation();
               startQualityProbe();
             }}
           >
-            {Object.keys(probing).length > 0 ? '探测中…' : '测画质'}
+            {Object.keys(probing).length > 0 ? t('vc.probing') : t('vc.probe')}
           </button>
 
           {count > 5 && (
             <button
               className="g-rcard-srcmore"
-              title="查看全部来源"
+              title={t('vc.allSources')}
               onClick={(e) => {
                 e.stopPropagation();
                 activate();

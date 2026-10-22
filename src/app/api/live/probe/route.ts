@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { guardRequest, jsonError } from '@/lib/api-guard';
 import { fetchUpstreamWithMeta } from '@/lib/fetch-utils';
+import { createHostGate } from '@/lib/host-gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,17 @@ export const dynamic = 'force-dynamic';
 
 const MAX_URLS = 50;
 const CONCURRENCY = 16;
+
+/**
+ * 直播测活的 per-host 闸门。
+ *
+ * 与 fetch-utils 的全局 upstreamGate 是两层不同的东西，不能合并：
+ * - upstreamGate 保护的是「出网连接数」，覆盖所有上游（搜索、详情、画质、直播）；
+ * - 这里的 liveGate 保护的是「探测任务」，一次探测要连发 2~3 个请求（入口→variant→分片），
+ *   按连接数限流会让同一次探测的几级请求互相排队，把 10s 总预算耗在等自己身上。
+ * 每 host 3 个在途探测，与原来的 PER_HOST_CONCURRENCY 一致。
+ */
+const liveGate = createHostGate(3);
 /**
  * 单个频道三级探测的总预算（含各级请求）。
  * 6s 对跨网慢 CDN 不够用：实测存在 TCP 0.4s + TLS 1.5s 的源，
@@ -390,57 +402,14 @@ async function probeOne(url: string): Promise<ProbeOutcome> {
   }
 }
 
-/**
- * 全局按 host 限并发：IPTV 列表里同一运营商的几十个频道常共用一个 host，
- * 批量测活若不限流，会以「客户端多批次 × 服务端 CONCURRENCY」的并发冲击同一源，
- * 弱源服务器会被打挂甚至封掉本服务 IP（表现为越测越红）。
- * 同一 host 最多 PER_HOST_CONCURRENCY 个在途探测，跨请求共享（模块级闸门），
- * 不同 host 互不影响；名额满时 FIFO 排队，空闲闸门及时清理避免 Map 无界增长。
+/** 在 host 闸门内探测单个频道（probeOne 内部已兜底，不会抛出）
+ *
+ * 闸门本体在 lib/host-gate.ts：原来这里的实现只保护直播测活，而搜索一次会
+ * 同时打 N 个源 × 5 页、画质探测一次 6 并发，那些请求全都绕过它。抽到
+ * fetch-utils 的出网入口后，直播和点播共享同一把尺子，这里的调用保持不变。
  */
-const PER_HOST_CONCURRENCY = 3;
-
-const hostGates = new Map<string, { active: number; waiters: (() => void)[] }>();
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
-}
-
-/** 取一个该 host 的在途名额，返回释放函数；名额满时排队等待 */
-function acquireHostSlot(host: string): Promise<() => void> {
-  let gate = hostGates.get(host);
-  if (!gate) {
-    gate = { active: 0, waiters: [] };
-    hostGates.set(host, gate);
-  }
-  const g = gate;
-  return new Promise((resolve) => {
-    const take = () => {
-      g.active++;
-      resolve(() => {
-        g.active--;
-        // 唤醒的等待者同步接管名额（active-- 后立即 ++），不留被新请求插队的竞态窗口
-        const next = g.waiters.shift();
-        if (next) next();
-        else if (g.active === 0) hostGates.delete(host);
-      });
-    };
-    if (g.active < PER_HOST_CONCURRENCY) take();
-    else g.waiters.push(take);
-  });
-}
-
-/** 在 host 闸门内探测单个频道（probeOne 内部已兜底，不会抛出） */
 async function probeWithHostLimit(url: string): Promise<ProbeOutcome> {
-  const release = await acquireHostSlot(hostOf(url));
-  try {
-    return await probeOne(url);
-  } finally {
-    release();
-  }
+  return liveGate.run(url, () => probeOne(url));
 }
 
 const NDJSON_HEADERS = {

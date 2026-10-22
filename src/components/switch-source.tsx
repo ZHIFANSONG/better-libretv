@@ -11,6 +11,7 @@ import type { QualityEntry } from '@/lib/types';
 import { api } from '@/lib/client-api';
 import { QualityBadge } from './quality-badge';
 import { useToast } from './toast';
+import { useLang, useT } from './lang-sync';
 import { Icon } from './icon';
 import { SmartImage } from './smart-image';
 import { EmptyState } from './states';
@@ -42,6 +43,8 @@ export function SwitchSourceModal({
   initialCandidates?: SourceCandidate[];
   onClose: () => void;
 }) {
+  const t = useT();
+  const lang = useLang();
   const store = useAppStore();
   const router = useRouter();
   const { toast } = useToast();
@@ -120,7 +123,7 @@ export function SwitchSourceModal({
         // 主动中止不算失败，不提示
         const aborted = err instanceof DOMException && err.name === 'AbortError';
         if (!controller.signal.aborted && !aborted) {
-          toast(err instanceof Error ? err.message : '换源搜索失败', 'error');
+          toast(err instanceof Error ? err.message : t('ss.searchFailed'), 'error');
           setPhase('done');
         }
       });
@@ -192,7 +195,7 @@ export function SwitchSourceModal({
 
   const switchTo = (c: SourceCandidate) => {
     if (c.episodes === 0) {
-      toast('该源无可用播放资源', 'warning');
+      toast(t('ss.noPlayable'), 'warning');
       return;
     }
     const targetIndex = c.episodes && currentIndex < c.episodes ? currentIndex : 0;
@@ -225,7 +228,7 @@ export function SwitchSourceModal({
         overlay=""
         role="dialog"
         aria-modal="true"
-        aria-label={`换源：${currentTitle}`}
+        aria-label={t('ss.titleAria', { title: currentTitle })}
       >
         <div className="flex items-center justify-between mb-4">
           <div className="min-w-0">
@@ -235,13 +238,21 @@ export function SwitchSourceModal({
             <p className="text-xs text-faint">
               {sorted.length === 0
                 ? phase === 'searching'
-                  ? `正在搜索 ${sources.length} 个源…`
-                  : '没有源返回同名资源'
-                : `找到 ${sorted.length} 个来源 · ${ready.length} 个已测速 · ${sorted.filter((c) => c.ok).length} 个可用`}
-              {phase === 'searching' && sorted.length > 0 && ' · 搜索中…'}
+                  ? t('ss.searchingN', { n: sources.length })
+                  : t('ss.noMatch')
+                : t('ss.found', {
+                    n: sorted.length,
+                    ready: ready.length,
+                    ok: sorted.filter((c) => c.ok).length,
+                  })}
+              {phase === 'searching' && sorted.length > 0 && t('ss.searchingSuffix')}
             </p>
           </div>
-          <button className="p-1.5 rounded-md text-muted hover:text-content hover:bg-hover" onClick={onClose} aria-label="关闭">
+          <button
+            className="p-1.5 rounded-md text-muted hover:text-content hover:bg-hover"
+            onClick={onClose}
+            aria-label={t('common.close')}
+          >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -252,10 +263,10 @@ export function SwitchSourceModal({
           phase === 'searching' ? (
             <div className="py-10 text-center text-sm text-faint">
               <span className="inline-block w-4 h-4 mr-2 align-[-2px] rounded-full border-2 border-current border-r-transparent animate-spin" />
-              正在搜索各资源…
+              {t('ss.searchingAll')}
             </div>
           ) : (
-            <EmptyState variant="plain" title="其他点播源未找到同名资源" />
+            <EmptyState variant="plain" title={t('ss.otherNone')} />
           )
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -299,10 +310,12 @@ export function SwitchSourceModal({
                               : 'bg-success-solid/85 text-white'
                       )}
                     >
-                      {latencyText(c)}
+                      {latencyText(c, lang)}
                     </span>
                     {isCurrent && (
-                      <span className="absolute inset-x-0 bottom-0 bg-accent/90 text-on-accent text-xs text-center py-1">当前播放</span>
+                      <span className="absolute inset-x-0 bottom-0 bg-accent/90 text-on-accent text-xs text-center py-1">
+                        {t('ss.playing')}
+                      </span>
                     )}
                   </div>
                   <div className="p-2">
@@ -311,7 +324,11 @@ export function SwitchSourceModal({
                     </div>
                     <div className="text-xs text-faint mt-0.5 flex items-center justify-between gap-1">
                       <span className="truncate">
-                        {c.episodes === undefined ? '测速中…' : c.episodes > 0 ? `${c.episodes} 集` : '无资源'}
+                        {c.episodes === undefined
+                          ? t('ss.probing')
+                          : c.episodes > 0
+                            ? t('ss.episodes', { n: c.episodes })
+                            : t('ss.noResource')}
                       </span>
                       <QualityBadge
                         entry={store.qualityMap?.[qualityKey(c.source.key, c.result.vodId)]}

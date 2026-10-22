@@ -3,6 +3,7 @@
 import type { QualityEntry } from '@/lib/types';
 import { qualityLabel } from '@/lib/quality';
 import { cn } from '@/lib/utils';
+import { useT } from './lang-sync';
 
 /**
  * 画质徽章。
@@ -26,9 +27,10 @@ export function QualityBadge({
   loading?: boolean;
   className?: string;
 }) {
+  const t = useT();
   if (loading) {
     return (
-      <i className={cn('g-qb g-qb-idle', className)} title="正在探测画质…" aria-label="正在探测画质">
+      <i className={cn('g-qb g-qb-idle', className)} title={t('qb.probing')} aria-label={t('qb.probingAria')}>
         …
       </i>
     );
@@ -39,13 +41,9 @@ export function QualityBadge({
     return (
       <i
         className={cn('g-qb g-qb-unknown', className)}
-        title={
-          entry.error
-            ? `画质探测失败：${entry.error}（可能是防盗链或源站超时）`
-            : '单码率或直链，播放列表里没有画质信息；播放一次后会记录实测分辨率'
-        }
+        title={entry.error ? t('qb.failTip', { msg: entry.error }) : t('qb.unknownTip')}
       >
-        {entry.error ? '未探到' : '未知'}
+        {entry.error ? t('qb.untested') : t('qb.unknown')}
       </i>
     );
   }
@@ -57,7 +55,7 @@ export function QualityBadge({
   return (
     <i
       className={cn('g-qb', hd ? 'g-qb-hd' : 'g-qb-sd', className)}
-      title={entry.from === 'play' ? '播放时实测的真实分辨率' : '解析播放列表得到的档位'}
+      title={entry.from === 'play' ? t('qb.measuredTip') : t('qb.parsedTip')}
     >
       {label}
     </i>

@@ -2,6 +2,12 @@ export function cn(...classes: (string | false | null | undefined)[]): string {
   return classes.filter(Boolean).join(' ');
 }
 
+/**
+ * 相对时间的语言：只影响「刚刚 / 3 分钟前」这类文案，绝对时间戳（YYYY-MM-DD HH:mm）两边一致。
+ * 默认中文，调用方传 useLang() 的值即可整体跟语言走。
+ */
+type TimeLang = 'zh' | 'en';
+
 export function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '00:00';
   const h = Math.floor(seconds / 3600);
@@ -12,21 +18,34 @@ export function formatTime(seconds: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-export function formatRelativeTime(timestamp: number): string {
+export function formatRelativeTime(timestamp: number, lang: TimeLang = 'zh'): string {
   const diff = Date.now() - timestamp;
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}小时前`;
-  if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}天前`;
+  if (diff < 60_000) return lang === 'en' ? 'just now' : '刚刚';
+  if (diff < 3_600_000) {
+    const n = Math.floor(diff / 60_000);
+    return lang === 'en' ? `${n}m ago` : `${n}分钟前`;
+  }
+  if (diff < 86_400_000) {
+    const n = Math.floor(diff / 3_600_000);
+    return lang === 'en' ? `${n}h ago` : `${n}小时前`;
+  }
+  if (diff < 604_800_000) {
+    const n = Math.floor(diff / 86_400_000);
+    return lang === 'en' ? `${n}d ago` : `${n}天前`;
+  }
   const d = new Date(timestamp);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** 停用时长的可读文案：不足 1 小时按分钟，超过按小时（按剩余时间展示时向上取整） */
-export function formatDisableTtl(ms: number): string {
+export function formatDisableTtl(ms: number, lang: TimeLang = 'zh'): string {
   const minutes = Math.max(1, Math.ceil(ms / 60_000));
-  return minutes >= 60 ? `${Math.round(minutes / 60)} 小时` : `${minutes} 分钟`;
+  if (minutes >= 60) {
+    const h = Math.round(minutes / 60);
+    return lang === 'en' ? `${h}h` : `${h} 小时`;
+  }
+  return lang === 'en' ? `${minutes} min` : `${minutes} 分钟`;
 }
 
 /**

@@ -6,6 +6,7 @@ import { api, onUnauthorized, STATUS_QUERY_KEY } from '@/lib/client-api';
 import { applyEnvPresets } from '@/lib/subscription-sync';
 import type { AuthStatusResponse } from '@/lib/types';
 import { useToast } from './toast';
+import { useT } from './lang-sync';
 
 /**
  * 认证上下文：
@@ -79,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const t = useT();
   const openLogin = useCallback(() => setModalOpen(true), []);
 
   const logout = useCallback(async () => {
@@ -86,9 +88,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await api.logout();
     } finally {
       setVerified(false);
-      toast('已退出登录', 'info');
+      toast(t('auth.loggedOut'), 'info');
     }
-  }, [toast]);
+  }, [toast, t]);
 
   const handleLoginSuccess = useCallback(async () => {
     setVerified(true);
@@ -96,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setModalOpen(false);
     // 登录前以 401 失败的查询（如豆瓣推荐）需要重新拉取
     queryClient.invalidateQueries();
-    toast('验证成功', 'success');
+    toast(t('auth.ok'), 'success');
     // 预置订阅（DEFAULT_SUBSCRIPTIONS）的首屏同步发生在登录之前，会 401 静默失败，
     // 这里用缓存中的 /api/status 补跑一次（缓存缺失时回落为一次请求）
     try {
@@ -112,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // 补拉预置数据失败不影响登录后的正常使用
     }
-  }, [toast, queryClient]);
+  }, [toast, queryClient, t]);
 
   return (
     <AuthContext.Provider value={{ checked, verified, setupRequired, version, openLogin, logout }}>
@@ -137,6 +139,7 @@ function LoginModal({
   onSuccess: () => void;
   onClose: () => void;
 }) {
+  const t = useT();
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -162,8 +165,8 @@ function LoginModal({
       await api.login(password);
       onSuccess();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '验证失败';
-      setError(msg === '需要登录' ? '密码错误' : msg);
+      const msg = err instanceof Error ? err.message : t('auth.failed');
+      setError(msg === '需要登录' ? t('auth.badPassword') : msg);
       setPassword('');
       inputRef.current?.focus();
     } finally {
@@ -185,20 +188,17 @@ function LoginModal({
         overlay=""
         role="dialog"
         aria-modal="true"
-        aria-label={setupRequired ? '需要配置密码' : '访问验证'}
+        aria-label={setupRequired ? t('auth.setupRequired') : t('auth.access')}
       >
         {setupRequired ? (
           <>
-            <h2 className="text-lg font-semibold text-content mb-3">需要配置密码</h2>
-            <p className="text-sm text-muted leading-relaxed">
-              为确保安全，必须设置 <code className="text-accent">PASSWORD</code> 环境变量才能使用本服务。
-              请联系管理员在部署配置中添加该变量后重启服务。
-            </p>
+            <h2 className="text-lg font-semibold text-content mb-3">{t('auth.setupRequired')}</h2>
+            <p className="text-sm text-muted leading-relaxed">{t('auth.setupBody')}</p>
           </>
         ) : (
           <>
-            <h2 className="text-lg font-semibold text-content mb-1">访问验证</h2>
-            <p className="text-sm text-muted mb-4">请输入密码继续访问</p>
+            <h2 className="text-lg font-semibold text-content mb-1">{t('auth.access')}</h2>
+            <p className="text-sm text-muted mb-4">{t('auth.enterPassword')}</p>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -211,12 +211,12 @@ function LoginModal({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="input w-full"
-                placeholder="密码"
+                placeholder={t('auth.password')}
                 autoComplete="current-password"
               />
               {error && <p className="mt-2 text-sm text-danger">{error}</p>}
               <button type="submit" className="btn-primary w-full mt-4" disabled={loading || !password.trim()}>
-                {loading ? '验证中...' : '进入'}
+                {loading ? t('auth.verifying') : t('auth.enter')}
               </button>
             </form>
           </>

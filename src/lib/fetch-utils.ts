@@ -1,6 +1,7 @@
 /** 服务端上游请求工具：超时、重试、安全跳转、JSON 解析 */
 
 import { checkLiveUrlAllowed, checkUpstreamAllowed } from './ssrf';
+import { createHostGate } from './host-gate';
 
 export interface FetchOptions extends RequestInit {
   timeoutMs?: number;
@@ -85,16 +86,48 @@ export async function fetchUpstream(url: string, options: FetchOptions = {}): Pr
   return (await fetchUpstreamWithMeta(url, options)).res;
 }
 
-/** 同 fetchUpstream，额外返回重定向后的最终 URL */
+/**
+ * 上游请求的全局 per-host 并发上限。
+ *
+ * 为什么闸门放在 fetch-utils 而不是各个路由：聚合搜索一个请求就打 N 个源 × 最多 5 页，
+ * 画质探测一次 6 并发、每条还要连拉清单和分片，直播测活一次 16 并发。各路由自己的
+ * CONCURRENCY 只管单次请求内部，管不住「多个用户 × 多个路由」叠加到同一个 host 上；
+ * 采集站与 IPTV 服务器被这样打会直接拒绝连接甚至封 IP，表现就是「越用越红」。
+ * 放在唯一的出网入口上，等于所有上游请求共享同一把尺子。
+ *
+ * 统计类请求（豆瓣、Bangumi）也走这里，但它们各自的 host 只有自己，不受影响。
+ */
+const UPSTREAM_HOST_CONCURRENCY = (() => {
+  const n = parseInt(process.env.UPSTREAM_HOST_CONCURRENCY || '4', 10);
+  if (!Number.isFinite(n)) return 4;
+  return Math.min(32, Math.max(1, n));
+})();
+
+const upstreamGate = createHostGate(UPSTREAM_HOST_CONCURRENCY);
+
+/** 仅供测试与运维：当前有在途名额的上游 host 数 */
+export function upstreamHostCount(): number {
+  return upstreamGate.activeHosts();
+}
+
+/**
+ * 同 fetchUpstream，额外返回重定向后的最终 URL。
+ * 所有上游请求都要先拿到「该 host 的在途名额」，名额满时 FIFO 排队（见 host-gate.ts）。
+ */
 export async function fetchUpstreamWithMeta(url: string, options: FetchOptions = {}): Promise<FetchResult> {
   const { timeoutMs = 8000, retries = 0, safeRedirects = true, allowPrivate = false, ...init } = options;
-  // 外部 signal（调用方的总死线中断）与单次超时合并：任一触发即中断请求
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  const signal = init.signal
-    ? AbortSignal.any([init.signal, timeoutSignal])
-    : timeoutSignal;
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
+    // 每次尝试（含重试）都重新排队拿名额，名额在请求结束（含异常）时立刻归还，
+    // 不把名额和重试睡退避绑在一起，否则排队的人会被前面的重试一起拖住。
+    // 排队本身不算进超时预算：先拿到名额，再起计时，不然排 3 秒的队伍会让
+    // 8 秒的上游超时只剩 5 秒，把「排队慢」误报成「上游慢」。
+    const release = await upstreamGate.acquire(url, init.signal ?? undefined);
+    // 外部 signal（调用方的总死线中断）与单次超时合并：任一触发即中断请求
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = init.signal
+      ? AbortSignal.any([init.signal, timeoutSignal])
+      : timeoutSignal;
     try {
       if (!safeRedirects) {
         const res = await fetch(url, {
@@ -108,6 +141,8 @@ export async function fetchUpstreamWithMeta(url: string, options: FetchOptions =
       return await fetchWithSafeRedirects(url, { ...init, signal }, { allowPrivate });
     } catch (err) {
       lastError = err;
+    } finally {
+      release();
     }
   }
   throw lastError instanceof Error ? lastError : new Error('上游请求失败');

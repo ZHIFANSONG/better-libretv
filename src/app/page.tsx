@@ -8,6 +8,7 @@ import { ContinueWatchingSection } from '@/components/continue-watching';
 import { SearchHistoryDropdown, useSearchHistory } from '@/components/search-history';
 import { Icon } from '@/components/icon';
 import { SiteFooter } from '@/components/site-footer';
+import { useT } from '@/components/lang-sync';
 import { useToast } from '@/components/toast';
 import { cn } from '@/lib/utils';
 import { bubbleBox, placeSlider, sameBox, type BubbleBox } from '@/lib/glass-nav';
@@ -18,12 +19,12 @@ import { bubbleBox, placeSlider, sameBox, type BubbleBox } from '@/lib/glass-nav
  * 旧链接 ?s= 会被原地重定向过去，保证老书签与分享链接继续可用。
  */
 /** 首屏分段控件里的分类（直播是独立出去的跳转，不参与选中态） */
-const SEG_ITEMS: { id: HeroTab; label: string }[] = [
-  { id: 'all', label: '全部' },
-  { id: 'movie', label: '电影' },
-  { id: 'tv', label: '剧集' },
-  { id: 'anime', label: '动漫' },
-  { id: 'variety', label: '综艺' },
+const SEG_ITEMS: { id: HeroTab; labelKey: string }[] = [
+  { id: 'all', labelKey: 'bucket.all' },
+  { id: 'movie', labelKey: 'bucket.movie' },
+  { id: 'tv', labelKey: 'bucket.tv' },
+  { id: 'anime', labelKey: 'bucket.anime' },
+  { id: 'variety', labelKey: 'bucket.variety' },
 ];
 
 /** 指示块的初始样式：量到之前不可见，避免 SSR/首帧在左上角闪一下 */
@@ -42,6 +43,7 @@ function HomeContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+  const t = useT();
   const legacyQuery = searchParams.get('s') || '';
 
   const [input, setInput] = useState('');
@@ -122,7 +124,7 @@ function HomeContent() {
     const q = text.trim().slice(0, 100);
     if (navigating) return;
     if (!q) {
-      toast('请输入搜索内容', 'info');
+      toast(t('search.emptyInput'), 'info');
       inputRef.current?.focus();
       return;
     }
@@ -142,12 +144,12 @@ function HomeContent() {
       <Header />
 
       <main className="g-page flex-1">
-        <section className="g-hero" aria-label="搜索">
+        <section className="g-hero" aria-label={t('home.heroLabel')}>
           {/* 品牌区：上游首屏那块渐变字标题，proposal 版式里它被丢了，这里补回来 */}
           <div className="g-hero-head">
             <h1 className="g-hero-title brand-gradient hero-glow">LibreTV</h1>
             <p className="g-hero-sub">
-              自由观影，畅想精彩 <small>multi-source</small>
+              {t('home.heroTitle')} <small>multi-source</small>
             </p>
           </div>
 
@@ -165,7 +167,7 @@ function HomeContent() {
               <Icon name="search" className="w-[18px] h-[18px] opacity-50 shrink-0" />
               <input
                 ref={inputRef}
-                placeholder="搜索影片、剧集、直播…"
+                placeholder={t('search.placeholderHome')}
                 value={input}
                 maxLength={100}
                 onChange={(e) => {
@@ -175,7 +177,7 @@ function HomeContent() {
                 onFocus={searchHistory.onFocus}
                 onKeyDown={(e) => searchHistory.onKeyDown(e, pickHistory)}
                 role="combobox"
-                aria-label="搜索影片"
+                aria-label={t('search.label')}
                 aria-expanded={searchHistory.visible}
                 aria-controls="home-search-history"
                 aria-autocomplete="list"
@@ -189,7 +191,7 @@ function HomeContent() {
                 <button
                   type="button"
                   className="g-ic"
-                  aria-label="清空"
+                  aria-label={t('search.clear')}
                   onClick={() => {
                     setInput('');
                     searchHistory.resetActive();
@@ -201,7 +203,7 @@ function HomeContent() {
               )}
               <button type="submit" className={cn('go', navigating && 'busy')} disabled={navigating}>
                 <Icon name="search" className="go-ic-only w-4 h-4" />
-                <span className="go-tx">搜索</span>
+                <span className="go-tx">{t('search.button')}</span>
               </button>
             </form>
 
@@ -223,15 +225,15 @@ function HomeContent() {
               {/* 滑动由 .g-seg-ind 的 CSS transition 负责（glass-glide 在 CSS 后端是死代码），
                   所以不再挂 glass-glide / glass-jelly。 */}
               <span className="g-seg-ind" style={IND_INIT} ref={segIndRef} aria-hidden glass="tinted" glass-blur="10" />
-              {SEG_ITEMS.map((t) => (
+              {SEG_ITEMS.map((seg) => (
                 <button
-                  key={t.id}
+                  key={seg.id}
                   type="button"
-                  className={cn('g-seg-i', t.id === tab && 'on')}
-                  aria-pressed={t.id === tab}
-                  onClick={() => setTab(t.id)}
+                  className={cn('g-seg-i', seg.id === tab && 'on')}
+                  aria-pressed={seg.id === tab}
+                  onClick={() => setTab(seg.id)}
                 >
-                  {t.label}
+                  {t(seg.labelKey)}
                 </button>
               ))}
             </div>
@@ -239,10 +241,10 @@ function HomeContent() {
               type="button"
               className="g-seg-x"
               onClick={() => router.push('/live')}
-              aria-label="进入直播"
+              aria-label={t('home.liveLabel')}
             >
               <span className="g-livedot" aria-hidden />
-              直播
+              {t('home.live')}
             </button>
           </div>
         </section>

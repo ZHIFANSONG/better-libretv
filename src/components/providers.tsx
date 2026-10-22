@@ -10,6 +10,7 @@ import { useAppStore, hydrateLiveProbeResults } from '@/lib/store';
 import { api, STATUS_QUERY_KEY } from '@/lib/client-api';
 import { applyEnvPresets } from '@/lib/subscription-sync';
 import { purgeLegacyVideoCache } from '@/lib/legacy-cache-purge';
+import { LangSync } from './lang-sync';
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -50,6 +51,8 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
+        {/* 语言跟着 store 走：store 是 skipHydration，只能在挂载后同步 <html lang> */}
+        <LangSync />
         <ToastProvider>
           {/* 全站常驻：下载事件监听（enqueueDownload）依赖它存在——
               挂在 Header 里会让 /watch 等不渲染 Header 的页面派发的事件凭空丢失 */}

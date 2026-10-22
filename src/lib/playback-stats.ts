@@ -14,6 +14,19 @@
  * 本模块只做纯计算 + 格式化，取数与渲染在组件里，便于单测。
  */
 
+import { tr } from './i18n';
+
+/**
+ * 翻译函数签名，与 `useT()` 的返回值同型。
+ *
+ * 所有格式化/汇总函数都把 `t` 放在最后一个可选参数上，默认走中文字典：
+ * 这样单测里的中文断言不用改，播放器把 `useT()` 的 t 传进来就整体跟着语言走。
+ */
+export type StatsTranslator = (key: string, vars?: Record<string, string | number>) => string;
+
+/** 默认中文：不传 t 时保持改造前的输出 */
+const zhT: StatsTranslator = (key, vars) => tr('zh', key, vars);
+
 /** 一次采样得到的原始指标，任何一项都可能缺失（Firefox 没有 netinfo、直链没有 hls 档位） */
 export interface PlaybackStatsInput {
   /** 解码后的视频宽高（video.videoWidth / videoHeight） */
@@ -92,8 +105,9 @@ export interface StatsGroup {
 }
 
 /** bps → "3.2 Mbps"；低于 1 Mbps 用 Kbps，避免出现 "0.4 Mbps" 这种不好读的数 */
-export function formatBitrate(bps?: number): string {
-  if (!Number.isFinite(bps) || !bps || bps <= 0) return '未知';
+export function formatBitrate(bps?: number, t?: StatsTranslator): string {
+  const tt = t ?? zhT;
+  if (!Number.isFinite(bps) || !bps || bps <= 0) return tt('stats.unknown');
   if (bps >= 1_000_000) {
     const mbps = bps / 1_000_000;
     return `${mbps >= 10 ? mbps.toFixed(1) : mbps.toFixed(2)} Mbps`;
@@ -102,8 +116,8 @@ export function formatBitrate(bps?: number): string {
 }
 
 /** 帧率：整数直接显示，小数保留两位（29.97 / 23.976 这类必须保留，否则看不出 NTSC） */
-export function formatFrameRate(fps?: number): string {
-  if (!Number.isFinite(fps) || !fps || fps <= 0) return '未知';
+export function formatFrameRate(fps?: number, t?: StatsTranslator): string {
+  if (!Number.isFinite(fps) || !fps || fps <= 0) return (t ?? zhT)('stats.unknown');
   const rounded = Math.round(fps * 100) / 100;
   return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(2)} fps`;
 }
@@ -112,17 +126,17 @@ export function formatFrameRate(fps?: number): string {
  * 分辨率：宽高都有效才算已知。
  * 竖屏视频（手机拍的、部分短剧）按「宽 < 高」原样输出，不强行转成横屏标法。
  */
-export function formatResolution(width?: number, height?: number): string {
-  if (!Number.isFinite(width) || !Number.isFinite(height)) return '未知';
+export function formatResolution(width?: number, height?: number, t?: StatsTranslator): string {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return (t ?? zhT)('stats.unknown');
   const w = Math.round(width as number);
   const h = Math.round(height as number);
-  if (w <= 0 || h <= 0) return '未知';
+  if (w <= 0 || h <= 0) return (t ?? zhT)('stats.unknown');
   return `${w} × ${h}`;
 }
 
 /** 秒 → "4h 12m" / "12m 03s"；时长未知返回「未知」 */
-export function formatDuration(seconds?: number): string {
-  if (!Number.isFinite(seconds) || !seconds || seconds <= 0) return '未知';
+export function formatDuration(seconds?: number, t?: StatsTranslator): string {
+  if (!Number.isFinite(seconds) || !seconds || seconds <= 0) return (t ?? zhT)('stats.unknown');
   const total = Math.round(seconds as number);
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
@@ -138,15 +152,17 @@ export function formatDuration(seconds?: number): string {
  * 高于 30 秒再往上加没有意义（hls 的 maxBufferLength 默认也就 30～60），
  * 所以分三档而不是给一个精确到小数点的秒数当结论。
  */
-export function bufferHealth(seconds?: number): { text: string; warn: boolean } {
+export function bufferHealth(seconds?: number, t?: StatsTranslator): { text: string; warn: boolean } {
+  const tt = t ?? zhT;
   if (!Number.isFinite(seconds) || (seconds as number) < 0) {
-    return { text: '未知', warn: false };
+    return { text: tt('stats.unknown'), warn: false };
   }
   const s = seconds as number;
-  if (s < 1) return { text: `${s.toFixed(1)}s · 见底`, warn: true };
-  if (s < 5) return { text: `${s.toFixed(1)}s · 偏薄`, warn: true };
-  if (s < 15) return { text: `${s.toFixed(1)}s · 正常`, warn: false };
-  return { text: `${s.toFixed(1)}s · 充足`, warn: false };
+  const vars = { s: s.toFixed(1) };
+  if (s < 1) return { text: tt('stats.buffer.empty', vars), warn: true };
+  if (s < 5) return { text: tt('stats.buffer.thin', vars), warn: true };
+  if (s < 15) return { text: tt('stats.buffer.ok', vars), warn: false };
+  return { text: tt('stats.buffer.ample', vars), warn: false };
 }
 
 /**
@@ -174,11 +190,11 @@ export function codecLabel(codec?: string): string {
 }
 
 /** 有效连接类型的中文名；Chromium 的 effectiveType 是 "slow-2g"/"2g"/"3g"/"4g" */
-export function networkTypeLabel(effectiveType?: string): string {
+export function networkTypeLabel(effectiveType?: string, t?: StatsTranslator): string {
   if (!effectiveType) return '';
   switch (effectiveType.toLowerCase()) {
     case 'slow-2g':
-      return '极慢';
+      return (t ?? zhT)('stats.net.slow');
     case '2g':
       return '2G';
     case '3g':
@@ -345,7 +361,8 @@ export function summarizeSpeedSamples(samples: readonly SpeedSample[]): {
 }
 
 /** 网络分组：浏览器不提供任何网络信息时（Firefox/Safari）返回空数组，由调用方隐藏整组 */
-export function buildNetworkRows(input: PlaybackStatsInput): StatsRow[] {
+export function buildNetworkRows(input: PlaybackStatsInput, t?: StatsTranslator): StatsRow[] {
+  const tt = t ?? zhT;
   const rows: StatsRow[] = [];
   const measuredSpeed = Number.isFinite(input.measuredSpeedBps) && (input.measuredSpeedBps as number) > 0;
   const samples = Number.isFinite(input.speedSampleCount) && (input.speedSampleCount as number) > 0
@@ -353,10 +370,10 @@ export function buildNetworkRows(input: PlaybackStatsInput): StatsRow[] {
     : 0;
   if (measuredSpeed) {
     rows.push({
-      label: '实时下载',
-      value: formatBitrate(input.measuredSpeedBps),
+      label: tt('stats.row.speed'),
+      value: formatBitrate(input.measuredSpeedBps, tt),
       // 实测吞吐才是用户真正想知道的「我这网跑这条流够不够」
-      hint: samples > 0 ? `近 ${samples} 个分片` : '分片实测',
+      hint: samples > 0 ? tt('stats.hint.samples', { n: samples }) : tt('stats.hint.measured'),
     });
   }
   if (Number.isFinite(input.measuredTtfbMs) && (input.measuredTtfbMs as number) > 0) {
@@ -364,9 +381,9 @@ export function buildNetworkRows(input: PlaybackStatsInput): StatsRow[] {
     // 不是真的跨网往返，标出来免得用户以为自家网络比同城机房还快
     const ttfb = Math.round(input.measuredTtfbMs as number);
     rows.push({
-      label: '首字节延迟',
+      label: tt('stats.row.ttfb'),
       value: `${ttfb} ms`,
-      hint: ttfb < 20 ? '疑命中本地缓存' : '分片实测',
+      hint: ttfb < 20 ? tt('stats.hint.cached') : tt('stats.hint.measured'),
     });
   }
   /*
@@ -376,9 +393,9 @@ export function buildNetworkRows(input: PlaybackStatsInput): StatsRow[] {
    */
   if (!measuredSpeed && Number.isFinite(input.downlinkMbps) && (input.downlinkMbps as number) > 0) {
     rows.push({
-      label: '下行估速',
+      label: tt('stats.row.downlink'),
       value: `${(input.downlinkMbps as number).toFixed(1)} Mbps`,
-      hint: '浏览器档位',
+      hint: tt('stats.hint.browserTier'),
     });
   }
   if (
@@ -386,17 +403,21 @@ export function buildNetworkRows(input: PlaybackStatsInput): StatsRow[] {
     Number.isFinite(input.rttMs) &&
     (input.rttMs as number) > 0
   ) {
-    rows.push({ label: '往返时延', value: `${Math.round(input.rttMs as number)} ms`, hint: '浏览器档位' });
+    rows.push({
+      label: tt('stats.row.rtt'),
+      value: `${Math.round(input.rttMs as number)} ms`,
+      hint: tt('stats.hint.browserTier'),
+    });
   }
-  const typeLabel = networkTypeLabel(input.effectiveType);
+  const typeLabel = networkTypeLabel(input.effectiveType, tt);
   // 叫「浏览器档位」而不是「网络类型」：effectiveType 报的是等效带宽档，插网线也报 4g
-  if (typeLabel) rows.push({ label: '浏览器档位', value: typeLabel, hint: '等效带宽档' });
-  if (input.saveData) rows.push({ label: '省流模式', value: '已开启', warn: true });
+  if (typeLabel) rows.push({ label: tt('stats.row.browserTier'), value: typeLabel, hint: tt('stats.hint.bandwidthTier') });
+  if (input.saveData) rows.push({ label: tt('stats.row.saveData'), value: tt('stats.hint.on'), warn: true });
   // 缓冲余量在没有 video 元素时也会是「未知」：不塞一行没信息量的占位，
   // 整组宁可不显示（调用方会把空分组剔除）
   if (Number.isFinite(input.bufferedAhead)) {
-    const health = bufferHealth(input.bufferedAhead);
-    rows.push({ label: '缓冲余量', value: health.text, warn: health.warn });
+    const health = bufferHealth(input.bufferedAhead, tt);
+    rows.push({ label: tt('stats.row.buffer'), value: health.text, warn: health.warn });
   }
   return rows;
 }
@@ -408,22 +429,26 @@ export function buildNetworkRows(input: PlaybackStatsInput): StatsRow[] {
  * hls.js 的 measuredBitrate 是最近若干分片的实测吞吐——两者可能差一倍以上，
  * 所以两个都显示（分别标注），不做合并。用户关心的是「这条流声称多少 / 实际吃掉多少」。
  */
-export function buildStatsGroups(input: PlaybackStatsInput): StatsGroup[] {
+export function buildStatsGroups(input: PlaybackStatsInput, t?: StatsTranslator): StatsGroup[] {
+  const tt = t ?? zhT;
+  const unknown = tt('stats.unknown');
   const groups: StatsGroup[] = [];
 
   const video: StatsRow[] = [];
-  const res = formatResolution(input.width, input.height);
-  if (res !== '未知') video.push({ label: '分辨率', value: res });
+  const res = formatResolution(input.width, input.height, tt);
+  if (res !== unknown) video.push({ label: tt('stats.row.resolution'), value: res });
   // 清单声明的帧率优先；没有才退回实测值，并在值旁边写清它是怎么来的
-  const manifestFps = formatFrameRate(input.level?.frameRate);
-  if (manifestFps !== '未知') {
-    video.push({ label: '帧率', value: manifestFps });
+  const manifestFps = formatFrameRate(input.level?.frameRate, tt);
+  if (manifestFps !== unknown) {
+    video.push({ label: tt('stats.row.frameRate'), value: manifestFps });
   } else {
-    const measuredFps = formatFrameRate(input.frameRateMeasured);
-    if (measuredFps !== '未知') video.push({ label: '帧率', value: measuredFps, hint: '实测' });
+    const measuredFps = formatFrameRate(input.frameRateMeasured, tt);
+    if (measuredFps !== unknown) {
+      video.push({ label: tt('stats.row.frameRate'), value: measuredFps, hint: tt('stats.hint.measuredShort') });
+    }
   }
   const codec = codecLabel(input.level?.videoCodec);
-  if (codec) video.push({ label: '视频编码', value: codec });
+  if (codec) video.push({ label: tt('stats.row.videoCodec'), value: codec });
 
   const bitrateRows: StatsRow[] = [];
   // 多档源才有「第几档 / 共几档」的意义：单档源写个 1/1 纯属噪音
@@ -434,24 +459,27 @@ export function buildStatsGroups(input: PlaybackStatsInput): StatsGroup[] {
     (input.level?.levelIndex as number) >= 0
   ) {
     bitrateRows.push({
-      label: '档位',
-      value: `${(input.level?.levelIndex as number) + 1} / ${input.level?.levelCount} 档`,
-      hint: 'hls 已选',
+      label: tt('stats.row.level'),
+      value: tt('stats.row.levelValue', {
+        index: (input.level?.levelIndex as number) + 1,
+        count: input.level?.levelCount as number,
+      }),
+      hint: tt('stats.hint.hlsSelected'),
     });
   }
   if (Number.isFinite(input.level?.bitrate) && (input.level?.bitrate as number) > 0) {
-    bitrateRows.push({ label: '声明码率', value: formatBitrate(input.level?.bitrate) });
+    bitrateRows.push({ label: tt('stats.row.bitrate'), value: formatBitrate(input.level?.bitrate, tt) });
   }
   if (Number.isFinite(input.level?.measuredBitrate) && (input.level?.measuredBitrate as number) > 0) {
     bitrateRows.push({
-      label: 'ABR 估速',
-      value: formatBitrate(input.level?.measuredBitrate),
+      label: tt('stats.row.abr'),
+      value: formatBitrate(input.level?.measuredBitrate, tt),
       /*
        * 这是 hls 自己喂给自动选档的平滑带宽估计（含首字节等待），和网络分组里的
        * 「实时下载」（纯传输耗时口径）不是一回事：前者解释「为什么突然糊了」，
        * 后者回答「我这条网到底跑多快」。两个都留着，但名字必须区分开。
        */
-      hint: 'hls 自动选档',
+      hint: tt('stats.hint.hlsAbr'),
     });
   }
   if (bitrateRows.length > 0) video.push(...bitrateRows);
@@ -460,25 +488,25 @@ export function buildStatsGroups(input: PlaybackStatsInput): StatsGroup[] {
     const total = input.totalFrames as number;
     const dropped = Number.isFinite(input.droppedFrames) ? Math.max(0, input.droppedFrames as number) : 0;
     video.push({
-      label: '丢帧',
+      label: tt('stats.row.dropped'),
       value: `${dropped} / ${total}`,
       warn: dropped / total > 0.02,
     });
   }
-  if (video.length > 0) groups.push({ title: '画面', rows: video });
+  if (video.length > 0) groups.push({ title: tt('stats.group.video'), rows: video });
 
   const durationRows: StatsRow[] = [];
-  const dur = formatDuration(input.duration);
-  if (dur !== '未知') durationRows.push({ label: '总时长', value: dur });
+  const dur = formatDuration(input.duration, tt);
+  if (dur !== unknown) durationRows.push({ label: tt('stats.row.duration'), value: dur });
   if (Number.isFinite(input.currentTime) && (input.currentTime as number) > 0) {
-    durationRows.push({ label: '已播放', value: formatDuration(input.currentTime) });
+    durationRows.push({ label: tt('stats.row.played'), value: formatDuration(input.currentTime, tt) });
   }
   const audioCodec = codecLabel(input.level?.audioCodec);
-  if (audioCodec) durationRows.push({ label: '音频编码', value: audioCodec });
-  if (durationRows.length > 0) groups.push({ title: '音频与时长', rows: durationRows });
+  if (audioCodec) durationRows.push({ label: tt('stats.row.audioCodec'), value: audioCodec });
+  if (durationRows.length > 0) groups.push({ title: tt('stats.group.av'), rows: durationRows });
 
-  const network = buildNetworkRows(input);
-  if (network.length > 0) groups.push({ title: '网络', rows: network });
+  const network = buildNetworkRows(input, tt);
+  if (network.length > 0) groups.push({ title: tt('stats.group.network'), rows: network });
 
   return groups;
 }
@@ -489,14 +517,22 @@ export function buildStatsGroups(input: PlaybackStatsInput): StatsGroup[] {
  * 用纯文本而不是 JSON：用户求助时贴出来的是人话，而不是一堆键值对；
  * 同时保留 hint（「hls ABR」「估算值」这些限定词不能丢，否则数字会被误读）。
  */
-export function statsToText(groups: StatsGroup[], title?: string): string {
+export function statsToText(groups: StatsGroup[], title?: string, t?: StatsTranslator): string {
+  const tt = t ?? zhT;
   const lines: string[] = [];
-  if (title && title.trim()) lines.push(`【视频信息】${title.trim()}`);
+  if (title && title.trim()) lines.push(tt('stats.titleLine', { title: title.trim() }));
   for (const group of groups) {
     lines.push('', group.title);
     for (const row of group.rows) {
-      const hint = row.hint ? `（${row.hint}）` : '';
-      lines.push(`${row.label}：${row.value}${hint}${row.warn ? ' ⚠' : ''}`);
+      // 全角「（）：」是中文排版的一部分，英文界面得换成半角，所以整行也走字典
+      lines.push(
+        tt('stats.line', {
+          label: row.label,
+          value: row.value,
+          hint: row.hint ? tt('stats.hintWrap', { hint: row.hint }) : '',
+          warn: row.warn ? tt('stats.warnMark') : '',
+        }),
+      );
     }
   }
   return lines.join('\n').trimStart();

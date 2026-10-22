@@ -18,6 +18,8 @@ import { useToast } from '@/components/toast';
 import { EmptyState } from '@/components/states';
 import { Icon } from '@/components/icon';
 import { SiteFooter } from '@/components/site-footer';
+import { useLang, useT } from '@/components/lang-sync';
+import { listSep } from '@/lib/i18n';
 
 /**
  * 搜索页（proposal 版）：高斯模糊搜索条 + 带计数的分类胶囊 + g-rcard 结果网格（横屏 3~4 列）。
@@ -25,17 +27,29 @@ import { SiteFooter } from '@/components/site-footer';
  */
 const RESULT_PAGE_SIZE = 60;
 
-const BUCKETS = ['全部', '电影', '剧集', '动漫', '综艺'] as const;
+const BUCKETS = ['all', 'movie', 'tv', 'anime', 'variety'] as const;
 type Bucket = (typeof BUCKETS)[number];
 
-/** 按采集站给的 typeName 粗分桶：只用于筛选，不改变结果本身 */
+/**
+ * 桶 id 与文案 key 分开：id 只用于筛选与计数（跟语言无关），文案走字典。
+ * 早前直接把中文当成 id，切换英文后 aria-label、计数键全部会跟着坏掉。
+ */
+const BUCKET_LABEL: Record<Bucket, string> = {
+  all: 'bucket.all',
+  movie: 'bucket.movie',
+  tv: 'bucket.tv',
+  anime: 'bucket.anime',
+  variety: 'bucket.variety',
+};
+
+/** 按采集站给的 typeName 粗分桶：只用于筛选，不改变结果本身（typeName 是数据，恒为中文） */
 function bucketOf(g: AggregatedGroup): Bucket {
   const t = `${g.typeName ?? ''}`.toLowerCase();
-  if (/综艺|真人秀|脱口秀/.test(t)) return '综艺';
-  if (/动漫|动画|anime/.test(t)) return '动漫';
-  if (/剧|tv|连续|电视/.test(t)) return '剧集';
-  if (/电影|片/.test(t)) return '电影';
-  return '全部';
+  if (/综艺|真人秀|脱口秀/.test(t)) return 'variety';
+  if (/动漫|动画|anime/.test(t)) return 'anime';
+  if (/剧|tv|连续|电视/.test(t)) return 'tv';
+  if (/电影|片/.test(t)) return 'movie';
+  return 'all';
 }
 
 export default function SearchPage() {
@@ -50,6 +64,7 @@ function SearchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { toast } = useToast();
+  const t = useT();
   const urlQuery = searchParams.get('q') || searchParams.get('s') || '';
 
   const customAPIs = useAppStore((s) => s.customAPIs);
@@ -60,7 +75,7 @@ function SearchContent() {
   const subscriptions = useAppStore((s) => s.subscriptions);
 
   const [input, setInput] = useState(urlQuery);
-  const [bucket, setBucket] = useState<Bucket>('全部');
+  const [bucket, setBucket] = useState<Bucket>('all');
   const [detailItem, setDetailItem] = useState<SearchResultItem | null>(null);
   // 与 detailItem 配套的聚合组：弹窗里要列出这部片子的全部来源，光给一条 item 不够
   const [detailGroup, setDetailGroup] = useState<AggregatedGroup | null>(null);
@@ -76,7 +91,7 @@ function SearchContent() {
     if (urlQuery) setInput(urlQuery);
   }, [urlQuery]);
   useEffect(() => {
-    setBucket('全部');
+    setBucket('all');
     setVisibleCount(RESULT_PAGE_SIZE);
   }, [urlQuery]);
 
@@ -131,8 +146,11 @@ function SearchContent() {
           for (const ev of useAppStore.getState().recordSourceHealth([outcome])) {
             toast(
               ev.permanent
-                ? `「${sourceName(ev.key)}」多次失败，已停止参与搜索，可在设置中恢复`
-                : `「${sourceName(ev.key)}」连续超时/失败，已停用 ${formatDisableTtl(ev.ttlMs ?? 0)}`,
+                ? t('search.autoDisabled', { name: sourceName(ev.key) })
+                : t('search.autoDisabledTtl', {
+                    name: sourceName(ev.key),
+                    ttl: formatDisableTtl(ev.ttlMs ?? 0),
+                  }),
               'warning'
             );
           }
@@ -156,12 +174,12 @@ function SearchContent() {
   const runSearch = (q: string) => {
     const query = q.trim().slice(0, 100);
     if (!query) {
-      toast('请输入搜索内容', 'info');
+      toast(t('search.emptyInput'), 'info');
       inputRef.current?.focus();
       return;
     }
     if (selectedSources.length === 0) {
-      toast('请先在设置中添加并勾选点播源', 'warning');
+      toast(t('search.noSources'), 'warning');
       return;
     }
     searchHistory.record(query);
@@ -194,21 +212,21 @@ function SearchContent() {
     searchQuery.data?.failures ??
     streamedOutcomes
       .filter((o) => !o.ok)
-      .map((o) => ({ sourceKey: o.sourceKey, error: o.error || '请求失败', timedOut: o.timedOut }));
+      .map((o) => ({ sourceKey: o.sourceKey, error: o.error || t('search.requestFailed'), timedOut: o.timedOut }));
   const allGroups = useMemo(() => aggregateResults(list), [list]);
 
   // 分类计数：全部 + 四个桶（桶外的组只在「全部」里出现，编号不重复计）
   const counts = useMemo(() => {
-    const c: Record<string, number> = { 全部: allGroups.length, 电影: 0, 剧集: 0, 动漫: 0, 综艺: 0 };
+    const c: Record<Bucket, number> = { all: allGroups.length, movie: 0, tv: 0, anime: 0, variety: 0 };
     for (const g of allGroups) {
       const b = bucketOf(g);
-      if (b !== '全部') c[b] += 1;
+      if (b !== 'all') c[b] += 1;
     }
     return c;
   }, [allGroups]);
 
   const groups = useMemo(
-    () => (bucket === '全部' ? allGroups : allGroups.filter((g) => bucketOf(g) === bucket)),
+    () => (bucket === 'all' ? allGroups : allGroups.filter((g) => bucketOf(g) === bucket)),
     [allGroups, bucket]
   );
   const visibleGroups = useMemo(() => groups.slice(0, visibleCount), [groups, visibleCount]);
@@ -236,7 +254,7 @@ function SearchContent() {
 
   // 「其它相关」：本次结果里不匹配当前筛选的影片，作为横向补充（仅在筛选态出现）
   const related = useMemo(
-    () => (bucket === '全部' ? [] : allGroups.filter((g) => bucketOf(g) !== bucket)).slice(0, 12),
+    () => (bucket === 'all' ? [] : allGroups.filter((g) => bucketOf(g) !== bucket)).slice(0, 12),
     [allGroups, bucket]
   );
 
@@ -271,7 +289,7 @@ function SearchContent() {
             </svg>
             <input
               ref={inputRef}
-              placeholder="搜索影片、剧集、动漫…"
+              placeholder={t('search.placeholder')}
               value={input}
               maxLength={100}
               onChange={(e) => {
@@ -281,7 +299,7 @@ function SearchContent() {
               onFocus={searchHistory.onFocus}
               onKeyDown={(e) => searchHistory.onKeyDown(e, pickHistory)}
               role="combobox"
-              aria-label="搜索影片"
+              aria-label={t('search.label')}
               aria-expanded={searchHistory.visible}
               aria-controls="search-history"
               aria-autocomplete="list"
@@ -295,7 +313,7 @@ function SearchContent() {
               <button
                 type="button"
                 className="g-ic"
-                aria-label="清空"
+                aria-label={t('search.clear')}
                 onClick={() => {
                   setInput('');
                   searchHistory.resetActive();
@@ -307,7 +325,7 @@ function SearchContent() {
             )}
             <button type="submit" className={cn('go', isSearching && 'busy')}>
               <Icon name="search" className="go-ic w-4 h-4" />
-              <span className="go-tx">搜索</span>
+              <span className="go-tx">{t('search.button')}</span>
             </button>
           </form>
 
@@ -327,13 +345,13 @@ function SearchContent() {
           <div className="mt-10">
             <EmptyState
               icon="search"
-              title="输入关键词开始搜索"
-              description="一次搜索，同时问遍所有已启用的采集源，结果按影片自动合并"
+              title={t('search.idleTitle')}
+              description={t('search.idleDesc')}
               className="!py-16"
             />
           </div>
         ) : (
-          <section aria-label="搜索结果">
+          <section aria-label={t('search.resultsLabel')}>
             <div className="g-filterbar">
               <div className="g-tabs">
                 {BUCKETS.map((b) => (
@@ -347,7 +365,7 @@ function SearchContent() {
                       setVisibleCount(RESULT_PAGE_SIZE);
                     }}
                   >
-                    {b}
+                    {t(BUCKET_LABEL[b])}
                     <em>{counts[b] ?? 0}</em>
                   </button>
                 ))}
@@ -355,9 +373,12 @@ function SearchContent() {
               <span className="g-meta">
                 {isSearching && <span className="g-pulse" aria-hidden />}
                 {isSearching
-                  ? `已就绪 ${streamedOutcomes.length}/${selectedSources.length} 个源…`
+                  ? t('search.streaming', {
+                      done: streamedOutcomes.length,
+                      total: selectedSources.length,
+                    })
                   : searchQuery.data
-                    ? `${allGroups.length} 部影片 · ${list.length} 条结果`
+                    ? t('search.summary', { groups: allGroups.length, rows: list.length })
                     : ''}
               </span>
             </div>
@@ -398,7 +419,7 @@ function SearchContent() {
                 {groups.length > visibleCount && (
                   <div className="flex justify-center mt-6">
                     <button className="g-btn" onClick={() => setVisibleCount((v) => v + RESULT_PAGE_SIZE)}>
-                      加载更多（还有 {groups.length - visibleCount} 部）
+                      {t('search.loadMore', { n: groups.length - visibleCount })}
                     </button>
                   </div>
                 )}
@@ -408,8 +429,8 @@ function SearchContent() {
             ) : (
               <EmptyState
                 icon="search"
-                title="没有找到匹配的结果"
-                description="请尝试其他关键词、切换分类或更换点播源"
+                title={t('search.noneTitle')}
+                description={t('search.noneDesc')}
                 className="!py-16"
               />
             )}
@@ -417,7 +438,7 @@ function SearchContent() {
             {related.length > 0 && (
               <>
                 <h2 className="g-h2">
-                  其它分类里还有 <small>related</small>
+                  {t('search.relatedTitle', { n: related.length })} <small>related</small>
                 </h2>
                 <div className="g-grid">
                   {related.map((g) => (
@@ -437,7 +458,11 @@ function SearchContent() {
         )}
 
         <p className="g-note mt-10">
-          找不到想要的？<Link href="/" className="text-accent">回到首页</Link> 换个关键词，或在设置里增加采集源。
+          {t('search.tryElseA')}
+          <Link href="/" className="text-accent">
+            {t('search.backHome')}
+          </Link>
+          {t('search.tryElseB')}
         </p>
       </main>
 
@@ -477,6 +502,8 @@ function SourceStatusStrip({
   onRetryDisabled: (keys: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const t = useT();
+  const sep = listSep(useLang());
   const bad = failures.length + disabled.length + offSubscription.length;
 
   return (
@@ -484,39 +511,41 @@ function SourceStatusStrip({
       <button className="g-srcstatus-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <i className={cn('g-dot', bad > 0 ? 'warn' : 'ok')} />
         <span>
-          {searching && failures.length > 0 ? `${failures.length} 个源暂无响应` : ''}
+          {searching && failures.length > 0 ? t('search.stripFailures', { n: failures.length }) : ''}
           {searching && failures.length > 0 && (disabled.length > 0 || offSubscription.length > 0) ? ' · ' : ''}
-          {disabled.length > 0 ? `${disabled.length} 个源已停用` : ''}
+          {disabled.length > 0 ? t('search.stripDisabled', { n: disabled.length }) : ''}
           {disabled.length > 0 && offSubscription.length > 0 ? ' · ' : ''}
-          {offSubscription.length > 0 ? `${offSubscription.length} 个源所属订阅已关闭` : ''}
-          {!searching && failures.length > 0 ? `${failures.length} 个源本次请求失败` : ''}
+          {offSubscription.length > 0 ? t('search.stripOffSub', { n: offSubscription.length }) : ''}
+          {!searching && failures.length > 0 ? t('search.stripFailed', { n: failures.length }) : ''}
         </span>
-        <em>{open ? '收起' : '详情'}</em>
+        <em>{open ? t('search.stripLess') : t('search.stripMore')}</em>
       </button>
       {open && (
         <div className="g-srcstatus-body">
           {failures.length > 0 && (
             <p>
-              <b>{searching ? '暂无响应' : '本次失败'}</b>
-              {failures.map((f) => `${nameOf(f.sourceKey)}${f.timedOut ? '（超时）' : ''}`).join('、')}
-              <s>连续失败会自动停用，不影响其它源</s>
+              <b>{searching ? t('search.noRespTitle') : t('search.failTitle')}</b>
+              {failures
+                .map((f) => `${nameOf(f.sourceKey)}${f.timedOut ? t('search.timeoutSuffix') : ''}`)
+                .join(sep)}
+              <s>{t('search.failHint')}</s>
             </p>
           )}
           {disabled.length > 0 && (
             <p>
-              <b>已自动停用</b>
-              {disabled.map(nameOf).join('、')}
-              <s>连续失败达到阈值才会停用，多半是刚才网络抖动；确认源没问题就再试一次</s>
+              <b>{t('search.disabledTitle')}</b>
+              {disabled.map(nameOf).join(sep)}
+              <s>{t('search.disabledHint')}</s>
               <button className="g-act" onClick={() => onRetryDisabled(disabled)} disabled={searching}>
-                {searching ? '搜索中…' : '再试一次'}
+                {searching ? t('search.retrying') : t('search.retry')}
               </button>
             </p>
           )}
           {offSubscription.length > 0 && (
             <p>
-              <b>订阅已关闭</b>
-              {offSubscription.map(nameOf).join('、')}
-              <s>在 设置 → 数据源订阅 里可重新启用</s>
+              <b>{t('search.offSubTitle')}</b>
+              {offSubscription.map(nameOf).join(sep)}
+              <s>{t('search.offSubHint')}</s>
             </p>
           )}
         </div>
@@ -548,16 +577,20 @@ function ResultsSkeleton() {
 }
 
 function NoSourceGuide({ hasSources = false }: { hasSources?: boolean }) {
+  const t = useT();
   return (
     <div className="g-panel p-10 text-center">
-      <h3 className="text-content font-medium mb-2">{hasSources ? '尚未勾选点播源' : '先添加一个点播源'}</h3>
+      <h3 className="text-content font-medium mb-2">
+        {hasSources ? t('search.noSourceTitle') : t('search.noSourceAdd')}
+      </h3>
       <p className="text-sm text-muted leading-relaxed">
         {hasSources ? (
-          <>点击右上角「设置」，勾选要参与搜索的点播源后重新搜索。</>
+          <>{t('search.noSourceHint')}</>
         ) : (
           <>
-            LibreTV 不内置任何采集站。点击右上角「设置 → 添加 API」，填入一个 Apple CMS 采集站地址（如{' '}
-            <code className="text-accent text-xs">https://example.com/api.php/provide/vod</code>），勾选后即可开始搜索。
+            {t('search.noSourceHint2a')}
+            <code className="text-accent text-xs">https://example.com/api.php/provide/vod</code>
+            {t('search.noSourceHint2b')}
           </>
         )}
       </p>

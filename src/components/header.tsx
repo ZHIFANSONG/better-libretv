@@ -11,6 +11,7 @@ import { Icon } from './icon';
 import { SearchHistoryDropdown, useSearchHistory } from './search-history';
 import { cn } from '@/lib/utils';
 import { bubbleBox, placeSlider, sameBox, type BubbleBox } from '@/lib/glass-nav';
+import { useT } from './lang-sync';
 
 /**
  * 顶部导航（glassium 版）：整条胶囊是一块 runtime 玻璃（`glass="regular"`），
@@ -21,16 +22,17 @@ import { bubbleBox, placeSlider, sameBox, type BubbleBox } from '@/lib/glass-nav
  * 「元素一帧跳 >24px 就让玻璃飞过去」，挪一块绝对定位的玻璃即可。
  */
 const NAV_ITEMS = [
-  { href: '/', label: '首页' },
-  { href: '/search', label: '搜索' },
-  { href: '/live', label: '直播' },
-  { href: '/me', label: '我的' },
+  { href: '/', key: 'nav.home' },
+  { href: '/search', key: 'nav.search' },
+  { href: '/live', key: 'nav.live' },
+  { href: '/me', key: 'nav.me' },
 ] as const;
 
 /** 首屏的初始盒子：量到之前不许闪。 */
 const BUBBLE_INIT: CSSProperties = { left: 0, top: 0, width: 0, height: 0, opacity: 0 };
 
 export function Header({ showSearch = false }: { showSearch?: boolean }) {
+  const t = useT();
   const router = useRouter();
   const pathname = usePathname();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -129,22 +131,22 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
             * transition + syncBubble 里的 placeSlider 负责，所以这两个属性删掉。
             */}
           <span ref={bubbleRef} className="g-nav-bubble" style={BUBBLE_INIT} glass="tinted" glass-blur="10" aria-hidden />
-          <Link href="/" aria-label="LibreTV 首页" className="g-brand">
+          <Link href="/" aria-label={`LibreTV ${t('nav.home')}`} className="g-brand">
             <span className="g-mark" aria-hidden />
             <span className="hidden min-[400px]:inline">LibreTV</span>
           </Link>
 
-          <nav className="hidden sm:flex items-center gap-1" aria-label="主导航">
+          <nav className="hidden sm:flex items-center gap-1" aria-label={t('nav.home')}>
             {NAV_ITEMS.map((it) => (
               <Link key={it.href} href={it.href} className={cn('g-navlink', isActive(it.href) && 'on')}>
-                {it.label}
+                {t(it.key)}
               </Link>
             ))}
           </nav>
-          <nav className="flex sm:hidden items-center gap-0.5" aria-label="主导航">
+          <nav className="flex sm:hidden items-center gap-0.5" aria-label={t('nav.home')}>
             {NAV_ITEMS.map((it) => (
               <Link key={it.href} href={it.href} className={cn('g-navlink !px-2.5', isActive(it.href) && 'on')}>
-                {it.label}
+                {t(it.key)}
               </Link>
             ))}
           </nav>
@@ -160,8 +162,8 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
               <div ref={searchHistory.containerRef} className="relative">
                 <input
                   className="w-full h-8 rounded-full bg-white/5 border border-white/10 px-3 text-xs text-content placeholder:text-faint focus:outline-none focus:border-accent/60"
-                  aria-label="搜索影片"
-                  placeholder="搜索影片…"
+                  aria-label={t('nav.searchPlaceholder')}
+                  placeholder={t('nav.searchPlaceholder')}
                   value={query}
                   maxLength={100}
                   onChange={(e) => {
@@ -206,8 +208,8 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
             glass-blur="8"
             glass-tint="rgba(255,255,255,.06)"
             glass-jelly=""
-            title="设置"
-            aria-label="设置"
+            title={t('nav.settings')}
+            aria-label={t('nav.settings')}
             onClick={() => setSettingsOpen(true)}
           >
             <Icon name="gear" className="w-4 h-4" />
@@ -219,8 +221,8 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
             glass-blur="8"
             glass-tint="rgba(255,255,255,.06)"
             glass-jelly=""
-            title="观看历史"
-            aria-label="观看历史"
+            title={t('nav.history')}
+            aria-label={t('nav.history')}
             onClick={() => setHistoryOpen(true)}
           >
             <Icon name="clock" className="w-4 h-4" />
@@ -232,8 +234,8 @@ export function Header({ showSearch = false }: { showSearch?: boolean }) {
             glass-blur="8"
             glass-tint="rgba(255,255,255,.06)"
             glass-jelly=""
-            title="下载管理"
-            aria-label="下载管理"
+            title={t('nav.downloads')}
+            aria-label={t('nav.downloads')}
             onClick={requestShowDownloadManager}
           >
             <Icon name="download" className="w-4 h-4" />

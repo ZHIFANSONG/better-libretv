@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/client-api';
 import { useAppStore } from '@/lib/store';
 import type { SourceSearchOutcome } from '@/lib/types';
+import { useT } from './lang-sync';
 
 /**
  * 点播源批量探活 hook：
@@ -26,6 +27,7 @@ export interface SourceProbeProgress {
 }
 
 export function useSourceProbe() {
+  const t = useT();
   const [progress, setProgress] = useState<SourceProbeProgress | null>(null);
   const runIdRef = useRef(0);
 
@@ -77,7 +79,7 @@ export function useSourceProbe() {
           outcome = {
             sourceKey: source.key,
             ok: false,
-            error: err instanceof Error ? err.message : '测试失败',
+            error: err instanceof Error ? err.message : t('probe.testFailed'),
             list: [],
           };
         }
@@ -95,7 +97,7 @@ export function useSourceProbe() {
     setProgress(null);
     // 返回汇总供调用方提示；被取消时返回 undefined
     return { total, ok: okCount };
-  }, []);
+  }, [t]);
 
   return { progress, probe, cancel, isProbing: progress !== null };
 }

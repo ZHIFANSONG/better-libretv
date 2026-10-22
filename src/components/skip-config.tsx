@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from './icon';
 import { useToast } from './toast';
+import { useT } from './lang-sync';
 
 /**
  * 跳过片头/片尾的就地设置器（播放页动作行里的一个按钮 + 小弹层）。
@@ -42,6 +43,7 @@ export function SkipConfigButton({
   const wrapRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const t = useT();
 
   // 每次打开都用最新生效值重置草稿：关掉再打开不该留着上次没提交的输入
   useEffect(() => {
@@ -89,17 +91,21 @@ export function SkipConfigButton({
     setOpen(false);
     toast(
       nextIntro || nextOutro
-        ? `本剧已应用：片头 ${nextIntro ? `${nextIntro}s` : '关'} · 片尾 ${nextOutro ? `${nextOutro}s` : '关'}`
-        : '本剧已关闭跳过片头/片尾',
+        ? t('skip.applied', {
+            intro: nextIntro ? `${nextIntro}s` : t('skip.off'),
+            outro: nextOutro ? `${nextOutro}s` : t('skip.off'),
+          })
+        : t('skip.appliedOff'),
       'success'
     );
   };
 
   // 按钮文案要一眼看出「当前跳不跳、跳多少」
-  const label =
-    introSec > 0 || outroSec > 0
-      ? `跳过 ${introSec > 0 ? `片头${introSec}s` : ''}${introSec > 0 && outroSec > 0 ? ' · ' : ''}${outroSec > 0 ? `片尾${outroSec}s` : ''}`
-      : '跳过片头/片尾';
+  const parts = [
+    introSec > 0 ? t('skip.btnPartIntro', { n: introSec }) : '',
+    outroSec > 0 ? t('skip.btnPartOutro', { n: outroSec }) : '',
+  ].filter(Boolean);
+  const label = parts.length > 0 ? t('skip.btnOn', { parts: parts.join(' · ') }) : t('skip.btnOff');
 
   return (
     <div className="g-skip" ref={wrapRef}>
@@ -108,7 +114,7 @@ export function SkipConfigButton({
         className={`g-act${introSec > 0 || outroSec > 0 ? ' on' : ''}`}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title="设置本剧要跳过的片头/片尾秒数（只存本地）"
+        title={t('skip.tipline')}
         onClick={() => setOpen((v) => !v)}
       >
         <Icon name="skip" className="w-3.5 h-3.5 shrink-0" />
@@ -120,10 +126,10 @@ export function SkipConfigButton({
           ref={popRef}
           className={up ? 'g-skip-pop up' : 'g-skip-pop'}
           role="dialog"
-          aria-label="跳过片头片尾设置"
+          aria-label={t('skip.aria')}
         >
           <div className="g-skip-row">
-            <label htmlFor="g-skip-intro">跳过片头</label>
+            <label htmlFor="g-skip-intro">{t('skip.intro')}</label>
             <div className="g-skip-input">
               <input
                 id="g-skip-intro"
@@ -135,11 +141,11 @@ export function SkipConfigButton({
                 value={draftIntro}
                 onChange={(e) => setDraftIntro(e.target.value)}
               />
-              <s>秒</s>
+              <s>{t('skip.sec')}</s>
             </div>
           </div>
           <div className="g-skip-row">
-            <label htmlFor="g-skip-outro">提前跳片尾</label>
+            <label htmlFor="g-skip-outro">{t('skip.outro')}</label>
             <div className="g-skip-input">
               <input
                 id="g-skip-outro"
@@ -151,13 +157,10 @@ export function SkipConfigButton({
                 value={draftOutro}
                 onChange={(e) => setDraftOutro(e.target.value)}
               />
-              <s>秒</s>
+              <s>{t('skip.sec')}</s>
             </div>
           </div>
-          <p className="g-skip-tip">
-            填 0 表示关闭。改动只保存在这台设备，应用到本剧全部剧集；想改所有剧的默认秒数，去「设置 →
-            偏好设置 → 播放与过滤」。
-          </p>
+          <p className="g-skip-tip">{t('skip.hint')}</p>
           {introDisabledHint && <p className="g-skip-tip">{introDisabledHint}</p>}
           <div className="g-skip-acts">
             {hasOverride && (
@@ -167,14 +170,14 @@ export function SkipConfigButton({
                 onClick={() => {
                   onReset();
                   setOpen(false);
-                  toast('已恢复为默认设置', 'success');
+                  toast(t('skip.resetDone'), 'success');
                 }}
               >
-                恢复默认
+                {t('skip.reset')}
               </button>
             )}
             <button type="button" className="g-skip-btn" onClick={apply}>
-              应用到本剧
+              {t('skip.apply')}
             </button>
           </div>
         </div>
