@@ -113,7 +113,9 @@ services:
 
 > ⚠️ **生产部署必须通过 HTTPS 访问**（localhost 除外）：生产模式下会话 cookie 带 `Secure` 标记，浏览器只在 HTTPS（或 localhost）下保存它。因此用 `http://服务器IP:端口` 访问时，会出现「密码正确却无法登录」的现象——登录请求实际成功，但 cookie 被浏览器丢弃。请通过反向代理（Nginx / Caddy / Traefik）或 Cloudflare 等为站点套上 TLS 后再对外提供服务；本地开发用 `localhost` 不受影响。
 
-镜像发布在 GHCR 与 Docker Hub：`ghcr.io/zhifansong/better-libretv` 与 `docker.io/zhifansong/better-libretv`（`latest` / `主.次` / 完整版本号三个 tag，`linux/amd64` 与 `linux/arm64` 双架构，两个 registry 的镜像 digest 一致）。需要固定版本时在 `.env` 中设置 `LIBRETV_IMAGE=ghcr.io/zhifansong/better-libretv:2.18.0`。
+镜像发布在 `ghcr.io/zhifansong/better-libretv`（`latest` / `主.次` / 完整版本号三个 tag，`linux/amd64` 与 `linux/arm64` 双架构）。需要固定版本时在 `.env` 中设置 `LIBRETV_IMAGE=ghcr.io/zhifansong/better-libretv:2.18.0`。
+
+> Docker Hub（`docker.io/zhifansong/better-libretv`）是可选双发布：只有在仓库 Settings → Secrets and variables → Actions 里配置了 `DOCKER_USERNAME` 与 `DOCKER_PASSWORD`（Docker Hub Access Token）才会推送，未配置时工作流自动降级为仅 GHCR。本 fork 目前只发布 GHCR。
 
 > 版本号以 `package.json` 为单一来源，构建时注入 `APP_VERSION`，部署后可用 `/api/status` 返回的 `version` 字段核对。详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)。
 
@@ -349,7 +351,7 @@ CI 校验 tag 与 `package.json` 版本一致后，自动构建并推送 `ghcr.i
 - 补齐 `loading.tsx` / `not-found.tsx` / 路由顶部进度条（App Router 没有路由事件，改用捕获阶段的 `<a>` 点击与 `popstate` 自行维护）与封面图逐张淡入。
 - 新增 `DEFAULT_IMAGE_MODE` 环境变量，允许部署者指定封面图默认直连还是走内置代理。
 - 清理上游遗留的死代码，并修复若干失效单测。
-- 发布镜像由仓库自带的 GitHub Actions 工作流构建，同时推送 GHCR 与 Docker Hub（amd64 / arm64 双架构）。
+- 发布镜像由仓库自带的 GitHub Actions 工作流构建并推送 GHCR（amd64 / arm64 双架构）；fork 仓库若配置了 `DOCKER_USERNAME` / `DOCKER_PASSWORD` secrets，会同时镜像到 Docker Hub。
 
 **7. 画质、语言与安全加固**
 
