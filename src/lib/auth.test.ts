@@ -168,6 +168,21 @@ describe('checkGlobalRateLimit', () => {
     }
   });
 
+  it('登录成功释放全局桶：真人不会被自己的一次误输拖住', () => {
+    const original = process.env.AUTH_GLOBAL_MAX_ATTEMPTS;
+    process.env.AUTH_GLOBAL_MAX_ATTEMPTS = '2';
+    try {
+      expect(checkGlobalRateLimit()).toBe(true);
+      expect(checkGlobalRateLimit()).toBe(true);
+      expect(checkGlobalRateLimit()).toBe(false); // 撞上限
+      clearGlobalRateLimit(); // = 登录成功后 route.ts 做的事
+      expect(checkGlobalRateLimit()).toBe(true);
+    } finally {
+      if (original === undefined) delete process.env.AUTH_GLOBAL_MAX_ATTEMPTS;
+      else process.env.AUTH_GLOBAL_MAX_ATTEMPTS = original;
+    }
+  });
+
   it('clearGlobalRateLimit 重置窗口', () => {
     const original = process.env.AUTH_GLOBAL_MAX_ATTEMPTS;
     process.env.AUTH_GLOBAL_MAX_ATTEMPTS = '1';

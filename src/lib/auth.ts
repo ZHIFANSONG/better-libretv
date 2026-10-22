@@ -109,6 +109,7 @@ const WINDOW_MS = 10 * 60 * 1000;
  * 全局限流：即使攻击者把 XFF 换成无数个「新 IP」，也会撞到这里。
  * 单靠按 IP 的桶挡不住伪造头 —— 上限必须有一层与 IP 无关的兜底。
  * 个人站正常登录频率远低于此；被锁时可用环境变量 AUTH_GLOBAL_MAX_ATTEMPTS 临时放宽。
+ * 登录成功会连全局桶一起释放（见 auth/route.ts），所以真人不会被自己的一次误输拖住。
  */
 const GLOBAL_MAX_ATTEMPTS_DEFAULT = 50;
 let globalBucket = { count: 0, resetAt: 0 };

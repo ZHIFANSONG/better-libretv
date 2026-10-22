@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { SESSION_COOKIE, checkRateLimit, checkGlobalRateLimit, clientIpFromHeaders, sessionFromCookieHeader, signSession, checkPassword, clearRateLimit, isPasswordConfigured } from '@/lib/auth';
+import { SESSION_COOKIE, checkRateLimit, checkGlobalRateLimit, clearGlobalRateLimit, clientIpFromHeaders, sessionFromCookieHeader, signSession, checkPassword, clearRateLimit, isPasswordConfigured } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -33,7 +33,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: '密码错误' }, { status: 401 });
   }
 
+  // 登录成功说明「确实知道密码」，两层桶一起释放：
+  // 只清按 IP 的桶会让全局桶把刚证明过身份的人锁在门外（全局桶是防伪造头的兜底，
+  // 它挡住的是「不知道密码的人」，不是已经登录成功的人）。
   clearRateLimit(ip);
+  clearGlobalRateLimit();
   const { token, expiresAt } = signSession();
   const res = NextResponse.json({ success: true });
   // Cookie Secure 策略：COOKIE_SECURE 环境变量显式覆盖；否则按 x-forwarded-proto 推导。
