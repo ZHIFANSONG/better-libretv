@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { afterEach, beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
-import { SESSION_COOKIE, checkPassword, checkRateLimit, clearRateLimit, sessionFromCookieHeader, signSession, verifySession } from './auth';
+import { SESSION_COOKIE, checkPassword, checkGlobalRateLimit, checkRateLimit, clearGlobalRateLimit, clearRateLimit, clientIpFromHeaders, sessionFromCookieHeader, signSession, verifySession } from './auth';
 
 /**
  * 会话鉴权单测：HMAC 签名/校验、过期、防篡改、密码恒定时间比较、登录限流。
@@ -123,5 +123,62 @@ describe('checkRateLimit', () => {
     expect(checkRateLimit('1.2.3.4')).toBe(false);
     clearRateLimit('1.2.3.4');
     expect(checkRateLimit('1.2.3.4')).toBe(true);
+  });
+});
+
+describe('clientIpFromHeaders', () => {
+  const h = (init: Record<string, string>) => new Headers(init);
+
+  it('优先 x-real-ip（nginx 覆写的真值）', () => {
+    expect(clientIpFromHeaders(h({ 'x-real-ip': '203.0.113.7', 'x-forwarded-for': '1.1.1.1' }))).toBe('203.0.113.7');
+  });
+
+  it('只有 XFF 时取最后一段，而不是客户端写的第一段', () => {
+    // 第一段 9.9.9.9 是攻击者伪造的；最后一段才是最近一跳代理追加的真值
+    expect(clientIpFromHeaders(h({ 'x-forwarded-for': '9.9.9.9, 198.51.100.4' }))).toBe('198.51.100.4');
+  });
+
+  it('单段 XFF 原样返回；两者都缺失时返回 unknown', () => {
+    expect(clientIpFromHeaders(h({ 'x-forwarded-for': '198.51.100.9' }))).toBe('198.51.100.9');
+    expect(clientIpFromHeaders(h({}))).toBe('unknown');
+  });
+
+  it('回归：伪造 XFF 换 IP 无法绕过按 IP 限流（换头无效）', () => {
+    // 模拟攻击者每次请求都自己编一个第一段 IP；取最后一段后它们全都归一到同一个桶
+    const spoofed = ['9.9.9.1, 198.51.100.4', '9.9.9.2, 198.51.100.4', '9.9.9.3, 198.51.100.4'];
+    const ips = spoofed.map((v) => clientIpFromHeaders(h({ 'x-forwarded-for': v })));
+    expect(new Set(ips).size).toBe(1);
+  });
+});
+
+describe('checkGlobalRateLimit', () => {
+  afterEach(() => clearGlobalRateLimit());
+
+  it('与 IP 无关的总量上限：超过 AUTH_GLOBAL_MAX_ATTEMPTS 后拒绝', () => {
+    const original = process.env.AUTH_GLOBAL_MAX_ATTEMPTS;
+    process.env.AUTH_GLOBAL_MAX_ATTEMPTS = '3';
+    try {
+      expect(checkGlobalRateLimit()).toBe(true);
+      expect(checkGlobalRateLimit()).toBe(true);
+      expect(checkGlobalRateLimit()).toBe(true);
+      expect(checkGlobalRateLimit()).toBe(false);
+    } finally {
+      if (original === undefined) delete process.env.AUTH_GLOBAL_MAX_ATTEMPTS;
+      else process.env.AUTH_GLOBAL_MAX_ATTEMPTS = original;
+    }
+  });
+
+  it('clearGlobalRateLimit 重置窗口', () => {
+    const original = process.env.AUTH_GLOBAL_MAX_ATTEMPTS;
+    process.env.AUTH_GLOBAL_MAX_ATTEMPTS = '1';
+    try {
+      expect(checkGlobalRateLimit()).toBe(true);
+      expect(checkGlobalRateLimit()).toBe(false);
+      clearGlobalRateLimit();
+      expect(checkGlobalRateLimit()).toBe(true);
+    } finally {
+      if (original === undefined) delete process.env.AUTH_GLOBAL_MAX_ATTEMPTS;
+      else process.env.AUTH_GLOBAL_MAX_ATTEMPTS = original;
+    }
   });
 });

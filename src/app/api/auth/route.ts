@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { SESSION_COOKIE, checkRateLimit, sessionFromCookieHeader, signSession, checkPassword, clearRateLimit, isPasswordConfigured } from '@/lib/auth';
+import { SESSION_COOKIE, checkRateLimit, checkGlobalRateLimit, clientIpFromHeaders, sessionFromCookieHeader, signSession, checkPassword, clearRateLimit, isPasswordConfigured } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -11,8 +11,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
-  if (!checkRateLimit(ip)) {
+  // 取 IP 只信「最靠近我们的那一跳」写入的头（见 clientIpFromHeaders 注释）。
+  // 按 IP 的桶之外还有一层全局限流：伪造 XFF 换 IP 也躲不过总量上限。
+  const ip = clientIpFromHeaders(req.headers);
+  if (!checkRateLimit(ip) || !checkGlobalRateLimit()) {
     return NextResponse.json(
       { success: false, error: '尝试次数过多，请 10 分钟后再试' },
       { status: 429 }
