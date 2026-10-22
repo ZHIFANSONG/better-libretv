@@ -123,6 +123,95 @@ describe('POST /api/search', () => {
     expect(lines[lines.length - 1].type).toBe('done');
   });
 
+  /**
+   * 采集站查不到时会返回「默认全量目录」。旧的零匹配兜底会把它原样当成搜索结果，
+   * 逐源事件更是完全不过滤——用户会在等 done 的过程中看到一屏体育/杂项。
+   * 这三条断言把三种响应模式（流式逐源 / JSON / 缓存命中）钉在同一套过滤规则上。
+   */
+  it.each([true, false])('逐源、最终与缓存结果使用相同过滤规则（成人过滤：%s）', async (filterAdult) => {
+    const sources = [
+      { key: 'good', name: '有效源', url: `https://cms.example.com/consistent-${filterAdult}` },
+      { key: 'bad', name: '失败源', url: `https://cms.example.com/failed-${filterAdult}` },
+    ];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/failed-')) return new Response('unavailable', { status: 500 });
+      return new Response(
+        cmsList([
+          { vod_id: 1, vod_name: '赛博朋克：边缘行者第二季', type_name: '动漫' },
+          { vod_id: 1, vod_name: '赛博朋克：边缘行者第二季', type_name: '动漫' },
+          { vod_id: 2, vod_name: '10月17日德甲联赛', type_name: '足球' },
+          { vod_id: 3, vod_name: '', type_name: '动漫' },
+          { vod_id: 4, vod_name: '赛博朋克：边缘行者第二季', type_name: '福利视频' },
+        ]),
+        { headers: { 'content-type': 'application/json' } }
+      );
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    const body = { wd: '赛博朋克：边缘行者 2', sources, filterAdult };
+    const stream = await POST(makeRequest(body, true));
+    const events = (await stream.text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { type: string; sourceKey?: string; list?: Array<{ vodId: string }>; failures?: unknown });
+    const good = events.find((event) => event.type === 'source' && event.sourceKey === 'good');
+    const failed = events.find((event) => event.type === 'source' && event.sourceKey === 'bad');
+    const done = events.find((event) => event.type === 'done');
+    const ids = filterAdult ? ['1'] : ['1', '4'];
+    // 空标题、「第三季」以外的无关体育条目、数字部分命中都必须被丢弃
+    expect(good?.list?.map((item) => item.vodId)).toEqual(ids);
+    expect(failed?.list).toEqual([]);
+    expect(done?.list).toEqual(good?.list);
+
+    // 同一缓存同时服务 JSON 和流式客户端，不能重新引入原始杂项
+    const calls = fetchSpy.mock.calls.length;
+    const json = (await (await POST(makeRequest(body))).json()) as { list: Array<{ vodId: string }>; failures: unknown };
+    expect(json.list).toEqual(good?.list);
+    expect(json.failures).toEqual(done?.failures);
+    const cachedStream = await POST(makeRequest(body, true));
+    const cachedEvents = (await cachedStream.text()).trim().split('\n').map((line) => JSON.parse(line) as { type: string });
+    expect(cachedEvents).toEqual([done]);
+    expect(fetchSpy).toHaveBeenCalledTimes(calls);
+
+    // 新地址走非缓存 JSON 分支，仍须得到相同的筛选结果
+    const fresh = (await (
+      await POST(makeRequest({ ...body, sources: sources.map((source) => ({ ...source, url: source.url + '/fresh' })) }))
+    ).json()) as { list: Array<{ vodId: string }>; failures: unknown };
+    expect(fresh.list.map((item) => item.vodId)).toEqual(ids);
+    expect(fresh.failures).toEqual(json.failures);
+  });
+
+  it('没有相关结果时各响应模式都返回空列表，而不是源站默认目录', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          cmsList([
+            { vod_id: 1, vod_name: '10月17日德甲联赛', type_name: '足球' },
+            { vod_id: 2, vod_name: '', type_name: '动漫' },
+          ])
+        )
+      )
+    );
+    const body = {
+      wd: '赛博朋克：边缘行者 2',
+      sources: [{ key: 'empty', name: '不相关源', url: 'https://cms.example.com/no-relevant-results' }],
+    };
+    const res = await POST(makeRequest(body, true));
+    const events = (await res.text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { type: string; list: unknown[]; failures?: unknown[] });
+    expect(events).toHaveLength(2);
+    for (const event of events) expect(event.list).toEqual([]);
+    expect(events[0]).toMatchObject({ type: 'source', ok: true });
+    expect(events[1]).toMatchObject({ type: 'done', failures: [] });
+
+    const cached = await POST(makeRequest(body));
+    expect(await cached.json()).toEqual({ list: [], failures: [] });
+    const cachedStream = await POST(makeRequest(body, true));
+    expect(JSON.parse((await cachedStream.text()).trim())).toEqual({ type: 'done', list: [], failures: [] });
+  });
+
   it('未登录返回 401，未配置密码返回 503', async () => {
     vi.stubGlobal('fetch', vi.fn());
     const saved = process.env.PASSWORD;

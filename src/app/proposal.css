@@ -974,28 +974,69 @@
  * 截图（screenshot）在触屏上依赖 canvas 截图，本就是桌面玩具；
  * 网页全屏（fullscreenWeb）在手机上不如元素全屏直观。两个都隐藏。
  */
+/*
+ * 上一集 / 下一集（左区，紧跟播放键）。
+ * 到头时压暗而不是摘掉：按钮位置固定，用户不必因为换集而重新找；
+ * 也不设 pointer-events:none —— 要让 tooltip 还能弹出来说明「没有更多了」。
+ */
+.g-stage .art-video-player .art-control-prevEpisode.g-ep-off,
+.g-stage .art-video-player .art-control-nextEpisode.g-ep-off {
+  opacity: 0.34;
+  cursor: default;
+}
 @media (max-width: 560px) {
   .g-stage .art-video-player .art-control-screenshot,
   .g-stage .art-video-player .art-control-fullscreenWeb,
   .g-stage .art-video-player .art-control-pip {
     display: none !important;
   }
+  /*
+   * 音量滑杆在 ≤560 也让位：控制条现在多了上一集/下一集两个按钮（约 68px），
+   * 手机音量本来就走系统键，这个滑杆是第一个该砍的。
+   */
+  .g-stage .art-video-player .art-control-volume {
+    display: none !important;
+  }
+  /*
+   * Artplayer 的内置按钮宽度 = 图标 40px + 左右 padding，设置与全屏各占 50px。
+   * 只压 padding 压不动图标，必须把 --art-control-icon-size 一起改小：
+   * 390pt 实测左区 202 + 右区 172 = 374 > 可用 342，差 32px 才能不溢出。
+   */
+  .g-stage .art-video-player {
+    --art-control-icon-size: 26px;
+  }
   .g-stage .art-video-player .art-control {
+    min-width: 32px !important;
+    padding: 0 5px !important;
+  }
+  /* 换集按钮比「工具类」按钮更该留给手指：别的压到 32，这两个留 34 */
+  .g-stage .art-video-player .art-control-prevEpisode,
+  .g-stage .art-video-player .art-control-nextEpisode {
     min-width: 34px !important;
-    padding: 0 7px !important;
   }
   .g-stage .art-video-player .art-control-time {
-    padding: 0 3px !important;
+    padding: 0 2px !important;
     font-size: 12px !important;
   }
 }
 /*
- * 320px 级超窄屏（iPhone SE 横放的竖屏档）再挤 28px：
- * 手机音量本来就走系统键，控制条里这个滑杆纯占位，直接不显示。
+ * 320pt 级超窄屏（iPhone SE 一类）再挤一档：
+ * 「视频信息」是桌面调试面板，手机上优先级最低，直接不显示；
+ * 图标与时间轴再压一点，保住播放键、换集键与全屏键。
  */
 @media (max-width: 380px) {
-  .g-stage .art-video-player .art-control-volume {
+  .g-stage .art-video-player .art-control-videoStats {
     display: none !important;
+  }
+  .g-stage .art-video-player {
+    --art-control-icon-size: 24px;
+  }
+  .g-stage .art-video-player .art-control {
+    min-width: 28px !important;
+    padding: 0 3px !important;
+  }
+  .g-stage .art-video-player .art-control-time {
+    font-size: 11px !important;
   }
 }
 

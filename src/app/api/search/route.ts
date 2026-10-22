@@ -256,7 +256,10 @@ export async function POST(req: Request) {
         sources.map(async (source, i) => {
           const outcome = await searchSource(source, wd);
           outcomes[i] = outcome;
-          send({ type: 'source', ...outcome });
+          // 中间结果与最终结果共用去重和过滤规则：采集站查不到时会返回默认全量目录，
+          // 逐源事件若直接把原始 list 推给客户端，用户会在等 done 的过程中看到一屏体育/杂项
+          const { list } = aggregateOutcomes([outcome], wd, filterAdult);
+          send({ type: 'source', ...outcome, list });
         })
       );
 

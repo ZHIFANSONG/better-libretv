@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import Artplayer from 'artplayer';
 import Hls, { type HlsConfig } from 'hls.js';
 
-import { useT } from './lang-sync';
+import { useLang, useT } from './lang-sync';
 import { StatsPanel, SubtitlePanel } from './player-panels';
 import { canUseNativeFullscreen, enterNativeFullscreen, isAppleTouchDevice } from '@/lib/player-platform';
 import { PlaybackRecovery, describeHlsError } from '@/lib/playback-recovery';
@@ -56,6 +56,24 @@ const SUBTITLE_ICON = [
   '<rect x="2.4" y="5.2" width="17.2" height="11.6" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/>',
   '<path d="M10.4 9.4a2.6 2.6 0 100 3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
   '<path d="M15.9 9.4a2.6 2.6 0 100 3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+  '</svg>',
+].join('');
+
+/**
+ * 控制栏「上一集 / 下一集」图标：双人字箭头（跟播放键同属「播放控制」，放左区）。
+ * 单独写死 fill/stroke 的理由同 SUBTITLE_ICON —— Artplayer 会统一灌 svg 样式。
+ * 不可用时靠 .is-off 压暗而不是摘掉：位置固定，用户不会因为换集而找不到按钮。
+ */
+const PREV_EPISODE_ICON = [
+  '<svg viewBox="0 0 22 22" width="22" height="22" xmlns="http://www.w3.org/2000/svg">',
+  '<path d="M10.2 6.4 5.2 11l5 4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  '<path d="M16.8 6.4 11.8 11l5 4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  '</svg>',
+].join('');
+const NEXT_EPISODE_ICON = [
+  '<svg viewBox="0 0 22 22" width="22" height="22" xmlns="http://www.w3.org/2000/svg">',
+  '<path d="M11.8 6.4 16.8 11l-5 4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  '<path d="M5.2 6.4 10.2 11l-5 4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
   '</svg>',
 ].join('');
 
@@ -153,6 +171,9 @@ export function PlayerShell({
    * 所以走 ref 转发：tt 恒定指向当前语言的翻译函数。
    */
   const tCurrent = useT();
+  // 当前语言本身也要有响应式句柄：tooltip 文案是命令式写进 DOM 的，
+  // 只靠 tt（useCallback 空依赖、身份恒定）拿不到「语言变了」这个信号
+  const lang = useLang();
   const tRef = useRef(tCurrent);
   tRef.current = tCurrent;
   // useCallback 空依赖：函数身份恒定，effect 里用它才不会触发 exhaustive-deps
@@ -810,6 +831,33 @@ export function PlayerShell({
       controls: [
         {
           /*
+           * 上一集 / 下一集（index 11/12，紧跟播放键 10、在音量 20 之前）。
+           *
+           * 之前换集只能靠 MediaSession（锁屏、耳机）或滚到右侧剧集网格里点，
+           * 播放中换集是高频动作，控制条上没有入口很不合理。
+           * 不可用时保留按钮但压暗（见下面的可用性 effect）：位置固定，用户不必重新找。
+           */
+          name: 'prevEpisode',
+          position: 'left',
+          index: 11,
+          html: PREV_EPISODE_ICON,
+          tooltip: tt('watch.prevEpisode'),
+          click: () => {
+            if (propsRef.current.hasPrevEpisode) propsRef.current.onPrevEpisode?.();
+          },
+        },
+        {
+          name: 'nextEpisode',
+          position: 'left',
+          index: 12,
+          html: NEXT_EPISODE_ICON,
+          tooltip: tt('watch.nextEpisode'),
+          click: () => {
+            if (propsRef.current.hasNextEpisode) propsRef.current.onNextEpisode?.();
+          },
+        },
+        {
+          /*
            * 字幕按钮放在视频信息之前（index 14）：两者都是「播放辅助」，
            * 挨在一起不打断播放/全屏这些高频控件。
            * 不显示在最左：那里是播放键与时间，是控制条上最需要稳的位置。
@@ -1246,6 +1294,35 @@ export function PlayerShell({
     });
     return () => clearMediaSession();
   }, []);
+
+  /*
+   * 控制条上的上一集 / 下一集按钮：可用性变化时更新压暗状态与 tooltip。
+   *
+   * 不摘按钮：剧集是连续切换的，按钮位置必须稳定；
+   * 也不禁用 pointer-events —— click 里已经按 propsRef 判过可用性，
+   * 这里只负责「看得出已经到头了」。Artplayer 没有 disabled 态样式，自己加类。
+   */
+  useEffect(() => {
+    const art = artRef.current;
+    if (!art) return;
+    const mark = (name: 'prevEpisode' | 'nextEpisode', on: boolean, key: string) => {
+      const el = art.controls[name] as HTMLElement | undefined;
+      if (!el) return;
+      el.classList.toggle('g-ep-off', !on);
+      el.setAttribute('aria-disabled', on ? 'false' : 'true');
+      /*
+       * Artplayer 的 tooltip 就是给元素加 hint 类并用 ::after 读 aria-label，
+       * 没有单独的 data 属性可改；所以这里改的是 aria-label 本身。
+       * 到头时补一句「没有更多了」，比单纯压暗更明确。
+       */
+      // 只用 aria-label：hint 的 ::after 读的就是它。再加 title 会多出一个原生 tooltip，两个一起弹。
+      const label = on ? tt(key) : `${tt(key)} · ${tt('player.noMore')}`;
+      el.setAttribute('aria-label', label);
+    };
+    mark('prevEpisode', hasPrevEpisode, 'watch.prevEpisode');
+    mark('nextEpisode', hasNextEpisode, 'watch.nextEpisode');
+    // 语言切换后 tooltip 要跟着换：tt 身份恒定，只能靠 lang 触发重跑
+  }, [hasPrevEpisode, hasNextEpisode, tt, lang]);
 
   // 上一集 / 下一集：可用性变化时才重绑（系统面板据此决定显示几个按钮）
   useEffect(() => {
