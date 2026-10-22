@@ -22,6 +22,14 @@ const nextConfig: NextConfig = {
   env: { APP_VERSION: readAppVersion() },
   // 采集站/豆瓣等上游地址在运行时由用户配置，构建期无法枚举，关闭图片优化改用 <img>
   images: { unoptimized: true },
+  // Next 16 默认拒绝「Host 与 dev 地址不一致」的开发资源请求（/_next/hmr、HMR websocket），
+  // 表现为浏览器控制台刷 "Blocked cross-origin request to Next.js dev resource"、
+  // 且 playwright 用 127.0.0.1 访问时客户端组件不水合（页面只剩骨架）。
+  // 仅影响 dev，生产镜像不读取该字段。
+  allowedDevOrigins: ['127.0.0.1', 'localhost', '192.168.3.64'],
+  // Turbopack 默认把仓库根当成 root，而本仓库被包在上一层 monorepo 里（D:\DeepSeekharness\server\site-redesign
+  // 也有 package-lock.json），不显式指定会打印「ignored package-lock.json ... outside the current Git repository」。
+  turbopack: { root: __dirname },
 };
 
 export default nextConfig;

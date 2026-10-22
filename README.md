@@ -1,6 +1,6 @@
 # LibreTV
 
-> 自托管的视频聚合搜索与播放程序。基于 **Next.js 15（App Router）+ TypeScript + Tailwind CSS**，播放内核为 **ArtPlayer + hls.js**，自带亮暗双主题、PWA 安装与 IPTV 直播。**只提供程序，不提供任何播放源。**
+> 自托管的视频聚合搜索与播放程序。基于 **Next.js 16（App Router，Turbopack）+ TypeScript + Tailwind CSS**，播放内核为 **ArtPlayer + hls.js**，自带亮暗双主题、PWA 安装与 IPTV 直播。**只提供程序，不提供任何播放源。**
 
 本仓库是 **better-libretv**（二改版），上游功能与后端逻辑照旧，重做的是**表现层与客户端交互**：一套新的视觉系统、首页 / 搜索 / 播放 / 直播 / 我的五个页面全部重排版式、换源选源与「跳过片头片尾」等交互补全。技术上相对上游改了什么，见文末[相对上游的主要改动](#相对上游的主要改动)。
 
@@ -57,6 +57,7 @@
 - **PWA**：可安装到桌面 / 主屏幕，亮暗双主题无首屏闪烁，路由切换有顶部进度条。
 - **界面语言**：内置中文 / English 切换（设置 → 常规 → 界面语言），覆盖导航、页脚、搜索、播放、直播、我的、设置与错误页面。剧名、采集源名、豆瓣标签与频道名属于**数据**，保持原样不翻译；豆瓣标签是接口查询参数，翻译会让请求落空。
 - **自托管**：单容器无状态运行，除访问密码外不需要任何外部依赖（无数据库、无 Redis）。
+- **构建链**：Next.js 16 + Turbopack，开发与生产构建共用同一套配置；lint 用 ESLint 9 扁平配置直连 `eslint-config-next`（Next 16 起 `next lint` 已移除）。
 
 ## 快速开始
 
@@ -110,7 +111,7 @@ services:
 
 > ⚠️ **生产部署必须通过 HTTPS 访问**（localhost 除外）：生产模式下会话 cookie 带 `Secure` 标记，浏览器只在 HTTPS（或 localhost）下保存它。因此用 `http://服务器IP:端口` 访问时，会出现「密码正确却无法登录」的现象——登录请求实际成功，但 cookie 被浏览器丢弃。请通过反向代理（Nginx / Caddy / Traefik）或 Cloudflare 等为站点套上 TLS 后再对外提供服务；本地开发用 `localhost` 不受影响。
 
-镜像发布在 GHCR 与 Docker Hub：`ghcr.io/zhifansong/better-libretv` 与 `docker.io/zhifansong/better-libretv`（`latest` / `主.次` / 完整版本号三个 tag，`linux/amd64` 与 `linux/arm64` 双架构，两个 registry 的镜像 digest 一致）。需要固定版本时在 `.env` 中设置 `LIBRETV_IMAGE=ghcr.io/zhifansong/better-libretv:2.16.12`。
+镜像发布在 GHCR 与 Docker Hub：`ghcr.io/zhifansong/better-libretv` 与 `docker.io/zhifansong/better-libretv`（`latest` / `主.次` / 完整版本号三个 tag，`linux/amd64` 与 `linux/arm64` 双架构，两个 registry 的镜像 digest 一致）。需要固定版本时在 `.env` 中设置 `LIBRETV_IMAGE=ghcr.io/zhifansong/better-libretv:2.17.0`。
 
 > 版本号以 `package.json` 为单一来源，构建时注入 `APP_VERSION`，部署后可用 `/api/status` 返回的 `version` 字段核对。详见[部署文档](https://libretv.is-an.org/wiki/Deployment.html)。
 
